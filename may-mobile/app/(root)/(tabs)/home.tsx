@@ -8,6 +8,7 @@ import {
   Image,
   FlatList,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -30,30 +31,63 @@ const Home = () => {
     router.replace("/(auth)/sign-in");
   };
 
-  const [hasPermission, setHasPermission] = useState<boolean>(false);
+  const [locationLoading, setLocationLoading] = useState(true);
 
   const { data: recentRides, loading } = useFetch<Ride[]>("/api/rides/my-rides");
 
   useEffect(() => {
     (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        setHasPermission(false);
-        return;
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+
+        if (status !== "granted") {
+          // Fallback to Windhoek so the map still shows
+          setUserLocation({
+            latitude: -22.5609,
+            longitude: 17.0658,
+            address: "Windhoek, Namibia",
+          });
+          Alert.alert(
+            "Location Permission",
+            "Location access was denied. Showing Windhoek as default."
+          );
+          setLocationLoading(false);
+          return;
+        }
+
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+
+        let address = "Current Location";
+        try {
+          const places = await Location.reverseGeocodeAsync({
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+          });
+          if (places[0]) {
+            address = `${places[0].name || places[0].street || ""}, ${places[0].city || places[0].region || ""}`.trim();
+          }
+        } catch (geoErr) {
+          console.warn("Reverse geocode failed:", geoErr);
+        }
+
+        setUserLocation({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          address,
+        });
+      } catch (err) {
+        console.error("Location error:", err);
+        // Still show a map with Windhoek fallback
+        setUserLocation({
+          latitude: -22.5609,
+          longitude: 17.0658,
+          address: "Windhoek, Namibia",
+        });
+      } finally {
+        setLocationLoading(false);
       }
-
-      let location = await Location.getCurrentPositionAsync({});
-
-      const address = await Location.reverseGeocodeAsync({
-        latitude: location.coords?.latitude!,
-        longitude: location.coords?.longitude!,
-      });
-
-      setUserLocation({
-        latitude: location.coords?.latitude,
-        longitude: location.coords?.longitude,
-        address: `${address[0].name}, ${address[0].region}`,
-      });
     })();
   }, []);
 
@@ -67,18 +101,16 @@ const Home = () => {
   };
 
   return (
-    <SafeAreaView className="bg-general-500">
+    <SafeAreaView className="bg-general-500 flex-1">
       <FlatList
-        data={recentRides?.slice(0, 5)}
+        data={recentRides?.slice(0, 5) ?? []}
         renderItem={({ item }) => <RideCard ride={item} />}
-        keyExtractor={(item, index) => index.toString()}
+        keyExtractor={(item, index) => item.id?.toString() ?? index.toString()}
         className="px-5"
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{
-          paddingBottom: 100,
-        }}
+        contentContainerStyle={{ paddingBottom: 100 }}
         ListEmptyComponent={() => (
-          <View className="flex flex-col items-center justify-center">
+          <View className="flex flex-col items-center justify-center py-10">
             {!loading ? (
               <>
                 <Image
@@ -97,7 +129,7 @@ const Home = () => {
           <>
             <View className="flex flex-row items-center justify-between my-5">
               <Text className="text-2xl font-JakartaExtraBold">
-                Welcome {user?.name}
+                Welcome {user?.name ?? "Passenger"}
               </Text>
               <TouchableOpacity
                 onPress={handleSignOut}
@@ -116,8 +148,19 @@ const Home = () => {
             <Text className="text-xl font-JakartaBold mt-5 mb-3">
               Your current location
             </Text>
-            <View className="flex flex-row items-center bg-transparent h-[300px]">
-              <Map />
+
+            <View
+              style={{ height: 300, width: "100%", borderRadius: 16, overflow: "hidden" }}
+              className="bg-transparent"
+            >
+              {locationLoading ? (
+                <View className="flex-1 items-center justify-center">
+                  <ActivityIndicator size="large" color="#0286FF" />
+                  <Text className="mt-2 text-sm text-gray-500">Getting location...</Text>
+                </View>
+              ) : (
+                <Map />
+              )}
             </View>
 
             <Text className="text-xl font-JakartaBold mt-5 mb-3">
