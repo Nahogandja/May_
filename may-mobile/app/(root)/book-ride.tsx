@@ -10,22 +10,24 @@ import { useLocationStore } from "@/store";
 
 const BookRide = () => {
   const {
-  userAddress,
-  destinationAddress,
-  userLatitude,
-  userLongitude,
-  destinationLatitude,
-  destinationLongitude,
-} = useLocationStore();
+    userAddress,
+    destinationAddress,
+    userLatitude,
+    userLongitude,
+    destinationLatitude,
+    destinationLongitude,
+  } = useLocationStore();
   const [submitting, setSubmitting] = useState(false);
   const [safeArrivalCode, setSafeArrivalCode] = useState<string | null>(null);
+  const [driverAssigned, setDriverAssigned] = useState(false);
 
   const handleConfirmRide = async () => {
-    if (!userAddress || !destinationAddress || userLatitude === null ||
-  userLongitude === null ||
-  destinationLatitude === null ||
-  destinationLongitude === null) {
+    if (!userAddress || !destinationAddress) {
       Alert.alert("Missing information", "Pickup and dropoff locations are required.");
+      return;
+    }
+    if (typeof userLatitude !== "number" || typeof userLongitude !== "number") {
+      Alert.alert("Missing information", "Your current location could not be determined.");
       return;
     }
 
@@ -34,18 +36,17 @@ const BookRide = () => {
       const data = await fetchAPI("/api/rides/book", {
         method: "POST",
         body: JSON.stringify({
-  pickup: userAddress,
-  dropoff: destinationAddress,
-
-  pickupLat: userLatitude,
-  pickupLng: userLongitude,
-
-  dropoffLat: destinationLatitude,
-  dropoffLng: destinationLongitude,
-}),
+          pickup: userAddress,
+          dropoff: destinationAddress,
+          pickupLat: userLatitude,
+          pickupLng: userLongitude,
+          dropoffLat: destinationLatitude,
+          dropoffLng: destinationLongitude,
+        }),
       });
 
       setSafeArrivalCode(data.ride.safe_arrival_code);
+      setDriverAssigned(data.driverAssigned);
     } catch (err: any) {
       Alert.alert("Error", err.message || "Booking failed. Please try again.");
     } finally {
@@ -69,7 +70,9 @@ const BookRide = () => {
 
       {safeArrivalCode ? (
         <View className="flex flex-col w-full items-center justify-center mt-10">
-          <Text className="text-lg font-JakartaSemiBold">Ride booked</Text>
+          <Text className="text-lg font-JakartaSemiBold">
+            {driverAssigned ? "Ride booked, driver assigned" : "Ride booked, searching for a driver"}
+          </Text>
           <Text className="text-md font-JakartaRegular mt-2">
             Safe Arrival Code
           </Text>
