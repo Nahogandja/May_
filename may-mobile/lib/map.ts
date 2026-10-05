@@ -1,78 +1,5 @@
 import { Driver, MarkerData } from "@/types/type";
 
-const directionsAPI = process.env.EXPO_PUBLIC_DIRECTIONS_API_KEY;
-
-export const generateMarkersFromData = ({
-  data,
-}: {
-  data: Driver[];
-}): MarkerData[] => {
-  return data.map((driver) => ({
-    latitude: driver.latitude,
-    longitude: driver.longitude,
-
-    id: driver.id,
-
-    title: driver.name,
-
-    car_seats: 4,
-    rating: 4.5,
-
-    distanceKm: driver.distanceKm,
-
-    profile_image_url: undefined,
-    car_image_url: undefined,
-  }));
-};
-
-export const calculateRegion = ({
-  userLatitude,
-  userLongitude,
-  destinationLatitude,
-  destinationLongitude,
-}: {
-  userLatitude: number | null;
-  userLongitude: number | null;
-  destinationLatitude?: number | null;
-  destinationLongitude?: number | null;
-}) => {
-  if (!userLatitude || !userLongitude) {
-    return {
-      latitude: 37.78825,
-      longitude: -122.4324,
-      latitudeDelta: 0.01,
-      longitudeDelta: 0.01,
-    };
-  }
-
-  if (!destinationLatitude || !destinationLongitude) {
-    return {
-      latitude: userLatitude,
-      longitude: userLongitude,
-      latitudeDelta: 0.01,
-      longitudeDelta: 0.01,
-    };
-  }
-
-  const minLat = Math.min(userLatitude, destinationLatitude);
-  const maxLat = Math.max(userLatitude, destinationLatitude);
-  const minLng = Math.min(userLongitude, destinationLongitude);
-  const maxLng = Math.max(userLongitude, destinationLongitude);
-
-  const latitudeDelta = (maxLat - minLat) * 1.3; // Adding some padding
-  const longitudeDelta = (maxLng - minLng) * 1.3; // Adding some padding
-
-  const latitude = (userLatitude + destinationLatitude) / 2;
-  const longitude = (userLongitude + destinationLongitude) / 2;
-
-  return {
-    latitude,
-    longitude,
-    latitudeDelta,
-    longitudeDelta,
-  };
-};
-
 export const calculateDriverTimes = async ({
   markers,
   userLatitude,
@@ -87,36 +14,84 @@ export const calculateDriverTimes = async ({
   destinationLongitude: number | null;
 }) => {
   if (
-    !userLatitude ||
-    !userLongitude ||
-    !destinationLatitude ||
-    !destinationLongitude
-  )
+    userLatitude === null ||
+    userLongitude === null ||
+    destinationLatitude === null ||
+    destinationLongitude === null
+  ) {
     return;
+  }
 
   try {
-    const timesPromises = markers.map(async (marker) => {
-      const responseToUser = await fetch(
-        `https://maps.googleapis.com/maps/api/directions/json?origin=${marker.latitude},${marker.longitude}&destination=${userLatitude},${userLongitude}&key=${directionsAPI}`,
-      );
-      const dataToUser = await responseToUser.json();
-      const timeToUser = dataToUser.routes[0].legs[0].duration.value; // Time in seconds
+    // Passenger route
+    const passengerRouteUrl =
+      `https://router.project-osrm.org/route/v1/driving/` +
+      `${userLongitude},${userLatitude};` +
+      `${destinationLongitude},${destinationLatitude}` +
+      `?overview=false`;
 
-      const responseToDestination = await fetch(
-        `https://maps.googleapis.com/maps/api/directions/json?origin=${userLatitude},${userLongitude}&destination=${destinationLatitude},${destinationLongitude}&key=${directionsAPI}`,
-      );
-      const dataToDestination = await responseToDestination.json();
-      const timeToDestination =
-        dataToDestination.routes[0].legs[0].duration.value; // Time in seconds
+    const passengerResponse = await fetch(passengerRouteUrl);
 
-      const totalTime = (timeToUser + timeToDestination) / 60; // Total time in minutes
-      const price = (totalTime * 0.5).toFixed(2); // Calculate price based on time
+    if (!passengerResponse.ok) {
+      throw new Error("Passenger route request failed");
+    }
 
-      return { ...marker, time: totalTime, price };
-    });
+    const passengerData = await passengerResponse.json();
 
-    return await Promise.all(timesPromises);
+    const passengerDuration =
+      passengerData.routes?.[0]?.duration ?? 0;
+
+    // Driver → passenger routes
+    const driverTimes = await Promise.all(
+      markers.map(async (marker) => {
+        try {
+          const driverRouteUrl =
+            `https://router.project-osrm.org/route/v1/driving/` +
+            `${marker.longitude},${marker.latitude};` +
+            `${userLongitude},${userLatitude}` +
+            `?overview=false`;
+
+          const response = await fetch(driverRouteUrl);
+
+          if (!response.ok) {
+            return {
+              ...marker,
+              time: undefined,
+              price: undefined,
+            };
+          }
+
+          const data = await response.json();
+
+          const driverDuration =
+            data.routes?.[0]?.duration ?? 0;
+
+          const totalTime =
+            (driverDuration + passengerDuration) / 60;
+
+          const price = (totalTime * 0.5).toFixed(2);
+
+          return {
+            ...marker,
+            time: totalTime,
+            price,
+          };
+        } catch (error) {
+          console.warn(
+            `Could not calculate route for driver ${marker.id}`,
+            error
+          );
+
+          return {
+            ...marker,
+          };
+        }
+      })
+    );
+
+    return driverTimes;
   } catch (error) {
     console.error("Error calculating driver times:", error);
+    return markers;
   }
 };
