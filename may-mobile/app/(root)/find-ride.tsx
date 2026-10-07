@@ -2,11 +2,10 @@ import { router } from "expo-router";
 import { Text, View } from "react-native";
 
 import CustomButton from "@/components/CustomButton";
-import GoogleTextInput from "@/components/LocationTextInput";
+import LocationTextInput from "@/components/LocationTextInput";
 import RideLayout from "@/components/RideLayout";
 import { icons } from "@/constants";
 import { useLocationStore } from "@/store";
-import LocationTextInput from "@/components/LocationTextInput";
 
 const FindRide = () => {
   const {
@@ -16,35 +15,57 @@ const FindRide = () => {
     setUserLocation,
   } = useLocationStore();
 
+  const handleFindRide = () => {
+    if (!userAddress) {
+      return;
+    }
+
+    if (!destinationAddress) {
+      return;
+    }
+
+    router.push("/(root)/confirm-ride");
+  };
+
   return (
     <RideLayout title="Ride">
       <View className="my-3">
-        <Text className="text-lg font-JakartaSemiBold mb-3">From</Text>
+        <Text className="text-lg font-JakartaSemiBold mb-3">
+          From
+        </Text>
 
-        <GoogleTextInput
+        <LocationTextInput
           icon={icons.target}
-          initialLocation={userAddress!}
+          initialLocation={userAddress || "Current Location"}
           containerStyle="bg-neutral-100"
           textInputBackgroundColor="#f5f5f5"
-          handlePress={(location) => setUserLocation(location)}
+          handlePress={(location) =>
+            setUserLocation(location)
+          }
         />
       </View>
 
       <View className="my-3">
-        <Text className="text-lg font-JakartaSemiBold mb-3">To</Text>
+        <Text className="text-lg font-JakartaSemiBold mb-3">
+          To
+        </Text>
 
         <LocationTextInput
           icon={icons.map}
-          initialLocation={destinationAddress!}
+          initialLocation={
+            destinationAddress || "Search destination"
+          }
           containerStyle="bg-neutral-100"
           textInputBackgroundColor="transparent"
-          handlePress={(location) => setDestinationLocation(location)}
+          handlePress={(location) =>
+            setDestinationLocation(location)
+          }
         />
       </View>
 
       <CustomButton
         title="Find Now"
-        onPress={() => router.push(`/(root)/confirm-ride`)}
+        onPress={handleFindRide}
         className="mt-5"
       />
     </RideLayout>

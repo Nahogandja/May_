@@ -1,6 +1,6 @@
 import * as Location from "expo-location";
 import { router } from "expo-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Text,
   View,
@@ -9,6 +9,7 @@ import {
   FlatList,
   ActivityIndicator,
   Alert,
+  RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -16,41 +17,74 @@ import LocationTextInput from "@/components/LocationTextInput";
 import Map from "@/components/Map";
 import RideCard from "@/components/RideCard";
 import { icons, images } from "@/constants";
-import { useFetch } from "@/lib/fetch";
+import { fetchAPI, useFetch } from "@/lib/fetch";
 import { useLocationStore } from "@/store";
 import { useAuthStore } from "@/store/auth";
 import { Ride } from "@/types/type";
 
+type NearbyDriver = {
+  id: string;
+  name: string;
+  phone: string;
+  vehicleDetails: string | null;
+  latitude: number;
+  longitude: number;
+  distanceKm: number;
+  lastLocationUpdate: string | null;
+};
+
 const Home = () => {
   const user = useAuthStore((state) => state.user);
   const clearAuth = useAuthStore((state) => state.clearAuth);
-  const { setUserLocation, setDestinationLocation } = useLocationStore();
+
+  const {
+    userLatitude,
+    userLongitude,
+    setUserLocation,
+    setDestinationLocation,
+  } = useLocationStore();
+
+  const [locationLoading, setLocationLoading] = useState(true);
+  const [driversLoading, setDriversLoading] = useState(false);
+  const [nearbyDrivers, setNearbyDrivers] = useState<NearbyDriver[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const {
+    data: recentRides,
+    loading,
+    refetch: refetchRides,
+  } = useFetch<Ride[]>("/api/rides/my-rides");
 
   const handleSignOut = () => {
     clearAuth();
     router.replace("/(auth)/sign-in");
   };
 
-  const [locationLoading, setLocationLoading] = useState(true);
-
-  const { data: recentRides, loading } = useFetch<Ride[]>("/api/rides/my-rides");
-
+  /**
+   * Get the passenger's current location.
+   */
   useEffect(() => {
-    (async () => {
+    let mounted = true;
+
+    const getLocation = async () => {
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
+        const { status } =
+          await Location.requestForegroundPermissionsAsync();
 
         if (status !== "granted") {
-          // Fallback to Windhoek so the map still shows
+          if (!mounted) return;
+
           setUserLocation({
             latitude: -22.5609,
             longitude: 17.0658,
             address: "Windhoek, Namibia",
           });
+
           Alert.alert(
             "Location Permission",
-            "Location access was denied. Showing Windhoek as default."
+            "Location access was denied. Showing Windhoek as your default location."
           );
+
           setLocationLoading(false);
           return;
         }
@@ -60,36 +94,102 @@ const Home = () => {
         });
 
         let address = "Current Location";
+
         try {
           const places = await Location.reverseGeocodeAsync({
             latitude: location.coords.latitude,
             longitude: location.coords.longitude,
           });
+
           if (places[0]) {
-            address = `${places[0].name || places[0].street || ""}, ${places[0].city || places[0].region || ""}`.trim();
+            const place = places[0];
+
+            address =
+              `${place.name || place.street || ""}, ${
+                place.city || place.region || ""
+              }`
+                .replace(/^,\s*/, "")
+                .replace(/,\s*$/, "")
+                .trim() || "Current Location";
           }
-        } catch (geoErr) {
-          console.warn("Reverse geocode failed:", geoErr);
+        } catch (geoError) {
+          console.warn("Reverse geocode failed:", geoError);
         }
+
+        if (!mounted) return;
 
         setUserLocation({
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
           address,
         });
-      } catch (err) {
-        console.error("Location error:", err);
-        // Still show a map with Windhoek fallback
+      } catch (error) {
+        console.error("Location error:", error);
+
+        if (!mounted) return;
+
         setUserLocation({
           latitude: -22.5609,
           longitude: 17.0658,
           address: "Windhoek, Namibia",
         });
       } finally {
-        setLocationLoading(false);
+        if (mounted) {
+          setLocationLoading(false);
+        }
       }
-    })();
-  }, []);
+    };
+
+    getLocation();
+
+    return () => {
+      mounted = false;
+    };
+  }, [setUserLocation]);
+
+  /**
+   * Get nearby available May drivers.
+   *
+   * The backend has already been tested successfully with:
+   *
+   * /api/rides/nearby-drivers
+   *
+   * fetchAPI automatically adds the passenger's JWT.
+   */
+  const loadNearbyDrivers = useCallback(async () => {
+    if (userLatitude === null || userLongitude === null) {
+      return;
+    }
+
+    try {
+      setDriversLoading(true);
+
+      const drivers = await fetchAPI(
+        `/api/rides/nearby-drivers?lat=${userLatitude}&lng=${userLongitude}&radius=10&limit=20`
+      );
+
+      if (Array.isArray(drivers)) {
+        setNearbyDrivers(drivers);
+      } else if (Array.isArray(drivers?.data)) {
+        setNearbyDrivers(drivers.data);
+      } else {
+        setNearbyDrivers([]);
+      }
+    } catch (error) {
+      console.error("Nearby drivers error:", error);
+      setNearbyDrivers([]);
+    } finally {
+      setDriversLoading(false);
+    }
+  }, [userLatitude, userLongitude]);
+
+  /**
+   * Load nearby drivers whenever the passenger's
+   * location becomes available or changes.
+   */
+  useEffect(() => {
+    loadNearbyDrivers();
+  }, [loadNearbyDrivers]);
 
   const handleDestinationPress = (location: {
     latitude: number;
@@ -100,15 +200,38 @@ const Home = () => {
     router.push("/(root)/find-ride");
   };
 
+  const handleRefresh = async () => {
+    setRefreshing(true);
+
+    try {
+      await Promise.all([
+        loadNearbyDrivers(),
+        refetchRides(),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const taxiCount = nearbyDrivers.length;
+
   return (
     <SafeAreaView className="bg-general-500 flex-1">
       <FlatList
         data={recentRides?.slice(0, 5) ?? []}
         renderItem={({ item }) => <RideCard ride={item} />}
-        keyExtractor={(item, index) => item.id?.toString() ?? index.toString()}
+        keyExtractor={(item, index) =>
+          item.id?.toString() ?? index.toString()
+        }
         className="px-5"
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingBottom: 100 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+          />
+        }
         ListEmptyComponent={() => (
           <View className="flex flex-col items-center justify-center py-10">
             {!loading ? (
@@ -131,6 +254,7 @@ const Home = () => {
               <Text className="text-2xl font-JakartaExtraBold">
                 Welcome {user?.name ?? "Passenger"}
               </Text>
+
               <TouchableOpacity
                 onPress={handleSignOut}
                 className="justify-center items-center w-10 h-10 rounded-full bg-white"
@@ -150,16 +274,81 @@ const Home = () => {
             </Text>
 
             <View
-              style={{ height: 300, width: "100%", borderRadius: 16, overflow: "hidden" }}
+              style={{
+                height: 300,
+                width: "100%",
+                borderRadius: 16,
+                overflow: "hidden",
+              }}
               className="bg-transparent"
             >
               {locationLoading ? (
                 <View className="flex-1 items-center justify-center">
-                  <ActivityIndicator size="large" color="#0286FF" />
-                  <Text className="mt-2 text-sm text-gray-500">Getting location...</Text>
+                  <ActivityIndicator
+                    size="large"
+                    color="#0286FF"
+                  />
+                  <Text className="mt-2 text-sm text-gray-500">
+                    Getting location...
+                  </Text>
                 </View>
               ) : (
                 <Map />
+              )}
+            </View>
+
+            {/* AVAILABLE TAXIS */}
+            <View className="mt-5 bg-white rounded-2xl p-4 shadow-sm">
+              <View className="flex-row items-center justify-between">
+                <View className="flex-row items-center">
+                  <Text className="text-2xl mr-2">🚕</Text>
+
+                  <View>
+                    <Text className="text-lg font-JakartaBold">
+                      May taxis nearby
+                    </Text>
+
+                    {driversLoading ? (
+                      <Text className="text-sm text-gray-500 mt-1">
+                        Checking availability...
+                      </Text>
+                    ) : (
+                      <Text className="text-sm text-gray-500 mt-1">
+                        {taxiCount === 0
+                          ? "No taxis currently available"
+                          : `${taxiCount} ${
+                              taxiCount === 1 ? "taxi" : "taxis"
+                            } available`}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+
+                {driversLoading ? (
+                  <ActivityIndicator
+                    size="small"
+                    color="#0286FF"
+                  />
+                ) : (
+                  <View className="bg-general-500 rounded-full px-3 py-2">
+                    <Text className="font-JakartaBold">
+                      {taxiCount}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              {taxiCount > 0 && (
+                <TouchableOpacity
+                  onPress={() =>
+                    router.push("/(root)/find-ride")
+                  }
+                  className="mt-4 bg-general-600 rounded-xl py-3 items-center"
+                >
+                  <Text className="font-JakartaBold text-white">
+                    Book a May taxi
+                  </Text>
+                </TouchableOpacity>
               )}
             </View>
 

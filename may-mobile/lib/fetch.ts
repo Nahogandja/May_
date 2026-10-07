@@ -2,26 +2,47 @@ import { useState, useEffect, useCallback } from "react";
 
 import { useAuthStore } from "@/store/auth";
 
-export const fetchAPI = async (endpoint: string, options?: RequestInit) => {
+export const fetchAPI = async (
+  endpoint: string,
+  options?: RequestInit
+) => {
   const token = useAuthStore.getState().token;
 
   try {
     const response = await fetch(
       `${process.env.EXPO_PUBLIC_API_URL}${endpoint}`,
       {
+        ...options,
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(token
+            ? {
+                Authorization: `Bearer ${token}`,
+              }
+            : {}),
           ...(options?.headers || {}),
         },
-        ...options,
       }
     );
 
-    const data = await response.json();
+    const contentType =
+      response.headers.get("content-type") || "";
+
+    let data: any = null;
+
+    if (contentType.includes("application/json")) {
+      data = await response.json();
+    } else {
+      const text = await response.text();
+
+      data = text ? { message: text } : null;
+    }
 
     if (!response.ok) {
-      throw new Error(data.message || "Something went wrong");
+      throw new Error(
+        data?.message ||
+          `Request failed with status ${response.status}`
+      );
     }
 
     return data;
@@ -31,34 +52,48 @@ export const fetchAPI = async (endpoint: string, options?: RequestInit) => {
   }
 };
 
-export function useFetch<T>(endpoint: string | null) {
+export function useFetch<T>(
+  endpoint: string | null
+) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    null
+  );
 
   const fetchData = useCallback(async () => {
-  if (!endpoint) {
-    setData(null);
-    setLoading(false);
-    return;
-  }
+    if (!endpoint) {
+      setData(null);
+      setLoading(false);
+      return;
+    }
 
-  setLoading(true);
-  setError(null);
+    setLoading(true);
+    setError(null);
 
-  try {
-    const result = await fetchAPI(endpoint);
-    setData(result.data ?? result);
-  } catch (err) {
-    setError((err as Error).message);
-  } finally {
-    setLoading(false);
-  }
-}, [endpoint]);
+    try {
+      const result = await fetchAPI(endpoint);
+
+      setData(result?.data ?? result);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong"
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [endpoint]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
-  return { data, loading, error, refetch: fetchData };
+  return {
+    data,
+    loading,
+    error,
+    refetch: fetchData,
+  };
 }
