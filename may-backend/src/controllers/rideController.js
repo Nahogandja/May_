@@ -196,20 +196,52 @@ const submitSafeArrival = async (req, res) => {
       'SELECT * FROM rides WHERE id = $1 AND passenger_id = $2',
       [id, req.user.id]
     );
-    if (!rows.length) return res.status(404).json({ message: 'Ride not found' });
 
-    const ride = rows[0];
-    if (ride.safe_arrival_code !== code) {
-      return res.status(400).json({ message: 'Incorrect safe arrival code' });
+    if (!rows.length) {
+      return res.status(404).json({
+        message: 'Ride not found'
+      });
     }
 
+    const ride = rows[0];
+
+    if (ride.safe_arrival_code !== code) {
+      return res.status(400).json({
+        message: 'Incorrect safe arrival code'
+      });
+    }
+
+    // Mark the ride as safely completed.
     await pool.query(
-      'UPDATE rides SET safe_arrived = true, status = $1 WHERE id = $2',
+      `UPDATE rides
+       SET safe_arrived = true,
+           status = $1
+       WHERE id = $2`,
       ['Completed', id]
     );
-    res.json({ message: 'Safe arrival confirmed' });
+
+    // The passenger has safely arrived, so release the driver.
+    // This makes the driver available for another ride.
+    if (ride.driver_id) {
+      await pool.query(
+        `UPDATE drivers
+         SET is_available = true
+         WHERE user_id = $1`,
+        [ride.driver_id]
+      );
+    }
+
+    res.json({
+      message: 'Safe arrival confirmed',
+      driverAvailable: !!ride.driver_id
+    });
   } catch (err) {
-    res.status(500).json({ message: 'Safe arrival failed', error: err.message });
+    console.error('Safe arrival failed:', err);
+
+    res.status(500).json({
+      message: 'Safe arrival failed',
+      error: err.message
+    });
   }
 };
 
