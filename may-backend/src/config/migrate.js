@@ -68,6 +68,12 @@ const migrate = async () => {
         ADD COLUMN IF NOT EXISTS dropoff_lng DOUBLE PRECISION;
     `);
 
+    // Driver must confirm destination arrival before the passenger submits the safe-arrival code.
+    await client.query(`
+      ALTER TABLE rides
+        ADD COLUMN IF NOT EXISTS driver_finished BOOLEAN NOT NULL DEFAULT FALSE;
+    `);
+
     await client.query('COMMIT');
     console.log('Migration complete: users, drivers, rides tables created.');
   } catch (err) {

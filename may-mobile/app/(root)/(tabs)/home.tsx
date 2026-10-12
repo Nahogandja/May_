@@ -275,7 +275,7 @@ const Home = () => {
 
             <View
               style={{
-                height: 300,
+                height: 220,
                 width: "100%",
                 borderRadius: 16,
                 overflow: "hidden",

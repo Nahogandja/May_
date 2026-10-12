@@ -1,0 +1,1649 @@
+
+===== .\app\(auth)\sign-in.tsx =====
+import { router } from "expo-router";
+import { useState } from "react";
+import { Alert, Image, ScrollView, Text, View } from "react-native";
+
+import CustomButton from "@/components/CustomButton";
+import InputField from "@/components/InputField";
+import { icons, images } from "@/constants";
+import { fetchAPI } from "@/lib/fetch";
+import { useAuthStore } from "@/store/auth";
+
+const routeForRole = (role?: string) => {
+  if (role === "Driver") return "/(root)/driver" as const;
+  if (role === "Admin") return "/admin" as const;
+  return "/(root)/(tabs)/home" as const;
+};
+
+const SignIn = () => {
+  const setAuth = useAuthStore((state) => state.setAuth);
+  const [form, setForm] = useState({ email: "", password: "" });
+  const [submitting, setSubmitting] = useState(false);
+
+  const onSignInPress = async () => {
+    if (submitting) return;
+    if (!form.email.trim() || !form.password) {
+      Alert.alert("Missing details", "Enter your email and password.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const data = await fetchAPI("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email: form.email.trim().toLowerCase(), password: form.password }),
+      });
+      if (!data?.token || !data?.user) throw new Error("The server returned an incomplete login response.");
+      setAuth(data.token, data.user);
+      router.replace(routeForRole(data.user.role));
+    } catch (err: any) {
+      Alert.alert("Sign in failed", err.message || "Please check your details and try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+<ScrollView
+  className="flex-1 bg-white"
+  contentContainerStyle={{ flexGrow: 1 }}
+  keyboardShouldPersistTaps="handled"
+  keyboardDismissMode="on-drag"
+  showsVerticalScrollIndicator={false}
+>
+  <View className="flex-grow bg-white">
+        <View className="relative h-[250px] w-full">
+          <Image source={images.signUpCar} className="z-0 h-[250px] w-full" />
+          <Text className="absolute bottom-5 left-5 text-2xl font-JakartaSemiBold text-black">Welcome</Text>
+        </View>
+        <View className="p-5">
+          <InputField label="Email" placeholder="Enter email" icon={icons.email} textContentType="emailAddress" value={form.email} onChangeText={(value) => setForm({ ...form, email: value })} />
+          <InputField label="Password" placeholder="Enter password" icon={icons.lock} secureTextEntry textContentType="password" value={form.password} onChangeText={(value) => setForm({ ...form, password: value })} />
+          <CustomButton title={submitting ? "Signing in..." : "Sign In"} onPress={onSignInPress} className="mt-6" />
+          <Text onPress={() => router.push("/(auth)/sign-up")} className="mt-10 text-center text-lg text-general-200">
+            Don't have an account? <Text className="text-primary-500">Sign Up</Text>
+          </Text>
+        </View>
+      </View>
+    </ScrollView>
+  );
+};
+
+export default SignIn;
+
+===== .\app\(auth)\sign-up.tsx =====
+import { router } from "expo-router";
+import { useState } from "react";
+import { Alert, Image, ScrollView, Text, TouchableOpacity, View } from "react-native";
+
+import CustomButton from "@/components/CustomButton";
+import InputField from "@/components/InputField";
+import { icons, images } from "@/constants";
+import { fetchAPI } from "@/lib/fetch";
+import { useAuthStore } from "@/store/auth";
+
+const routeForRole = (role?: string) => {
+  if (role === "Driver") return "/(root)/driver" as const;
+  if (role === "Admin") return "/admin" as const;
+  return "/(root)/(tabs)/home" as const;
+};
+
+const SignUp = () => {
+  const setAuth = useAuthStore((state) => state.setAuth);
+  const [form, setForm] = useState({ name: "", email: "", password: "", phone: "" });
+  const [role, setRole] = useState<"Passenger" | "Driver">("Passenger");
+  const [submitting, setSubmitting] = useState(false);
+
+  const onSignUpPress = async () => {
+    if (submitting) return;
+    if (!form.name.trim() || !form.email.trim() || !form.password) {
+      Alert.alert("Missing details", "Name, email, and password are required.");
+      return;
+    }
+    if (form.password.length < 8) {
+      Alert.alert("Password too short", "Use a password with at least 8 characters.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const data = await fetchAPI("/api/auth/register", {
+        method: "POST",
+        body: JSON.stringify({
+          name: form.name.trim(),
+          email: form.email.trim().toLowerCase(),
+          password: form.password,
+          phone: form.phone.trim() || undefined,
+          role,
+        }),
+      });
+      if (!data?.token || !data?.user) throw new Error("The server returned an incomplete registration response.");
+      setAuth(data.token, data.user);
+      if (role === "Driver") {
+        Alert.alert("Driver application created", "Complete your licence and vehicle details in the Driver Dashboard. May must approve your profile before you can go online.");
+      }
+      router.replace(routeForRole(data.user.role));
+    } catch (err: any) {
+      Alert.alert("Registration failed", err.message || "Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <ScrollView className="flex-1 bg-white" keyboardShouldPersistTaps="handled">
+      <View className="flex-1 bg-white">
+        <View className="relative h-[220px] w-full">
+          <Image source={images.signUpCar} className="z-0 h-[220px] w-full" />
+          <Text className="absolute bottom-5 left-5 text-2xl font-JakartaSemiBold text-black">Create Your Account</Text>
+        </View>
+        <View className="p-5">
+          <Text className="mb-3 text-base font-JakartaSemiBold text-gray-700">I want to join May as a</Text>
+          <View className="mb-5 flex-row gap-3">
+            {(["Passenger", "Driver"] as const).map((item) => (
+              <TouchableOpacity
+                key={item}
+                accessibilityRole="button"
+                onPress={() => setRole(item)}
+                className={`flex-1 rounded-xl border p-4 ${role === item ? "border-primary-500 bg-blue-50" : "border-gray-300 bg-white"}`}
+              >
+                <Text className={`text-center font-JakartaBold ${role === item ? "text-primary-500" : "text-gray-700"}`}>{item}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <InputField label="Name" placeholder="Enter full name" icon={icons.person} value={form.name} onChangeText={(value) => setForm({ ...form, name: value })} />
+          <InputField label="Email" placeholder="Enter email" icon={icons.email} textContentType="emailAddress" value={form.email} onChangeText={(value) => setForm({ ...form, email: value })} />
+          <InputField label="Phone (optional)" placeholder="Enter phone number" icon={icons.person} keyboardType="phone-pad" value={form.phone} onChangeText={(value) => setForm({ ...form, phone: value })} />
+          <InputField label="Password" placeholder="At least 8 characters" icon={icons.lock} secureTextEntry textContentType="newPassword" value={form.password} onChangeText={(value) => setForm({ ...form, password: value })} />
+          {role === "Driver" && (
+            <Text className="mb-3 mt-2 text-sm leading-5 text-gray-600">Driver accounts start as Pending. You must submit your licence and vehicle details and be approved by May before going online.</Text>
+          )}
+          <CustomButton title={submitting ? "Creating account..." : "Create Account"} onPress={onSignUpPress} className="mt-4" />
+          <Text onPress={() => router.push("/(auth)/sign-in")} className="mt-10 text-center text-lg text-general-200">
+            Already have an account? <Text className="text-primary-500">Sign In</Text>
+          </Text>
+        </View>
+      </View>
+    </ScrollView>
+  );
+};
+
+export default SignUp;
+
+===== .\app\(auth)\welcome.tsx =====
+import { router } from "expo-router";
+import { useRef, useState } from "react";
+import { Image, Text, TouchableOpacity, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import Swiper from "react-native-swiper";
+
+import CustomButton from "@/components/CustomButton";
+import { onboarding } from "@/constants";
+
+const Home = () => {
+  const swiperRef = useRef<Swiper>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  const isLastSlide = activeIndex === onboarding.length - 1;
+
+  return (
+    <SafeAreaView className="flex h-full items-center justify-between bg-white">
+      <TouchableOpacity
+        onPress={() => {
+          router.replace("/(auth)/sign-up");
+        }}
+        className="w-full flex justify-end items-end p-5"
+      >
+        <Text className="text-black text-md font-JakartaBold">Skip</Text>
+      </TouchableOpacity>
+
+      <Swiper
+        ref={swiperRef}
+        loop={false}
+        dot={
+          <View className="w-[32px] h-[4px] mx-1 bg-[#E2E8F0] rounded-full" />
+        }
+        activeDot={
+          <View className="w-[32px] h-[4px] mx-1 bg-[#0286FF] rounded-full" />
+        }
+        onIndexChanged={(index) => setActiveIndex(index)}
+      >
+        {onboarding.map((item) => (
+          <View key={item.id} className="flex items-center justify-center p-5">
+            <Image
+              source={item.image}
+              className="w-full h-[300px]"
+              resizeMode="contain"
+            />
+            <View className="flex flex-row items-center justify-center w-full mt-10">
+              <Text className="text-black text-3xl font-bold mx-10 text-center">
+                {item.title}
+              </Text>
+            </View>
+            <Text className="text-md font-JakartaSemiBold text-center text-[#858585] mx-10 mt-3">
+              {item.description}
+            </Text>
+          </View>
+        ))}
+      </Swiper>
+
+      <CustomButton
+        title={isLastSlide ? "Get Started" : "Next"}
+        onPress={() =>
+          isLastSlide
+            ? router.replace("/(auth)/sign-up")
+            : swiperRef.current?.scrollBy(1)
+        }
+        className="w-11/12 mt-10 mb-5"
+      />
+    </SafeAreaView>
+  );
+};
+
+export default Home;
+
+===== .\app\(root)\(tabs)\home.tsx =====
+import * as Location from "expo-location";
+import { router } from "expo-router";
+import { useState, useEffect, useCallback } from "react";
+import {
+  Text,
+  View,
+  TouchableOpacity,
+  Image,
+  FlatList,
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+import LocationTextInput from "@/components/LocationTextInput";
+import Map from "@/components/Map";
+import RideCard from "@/components/RideCard";
+import { icons, images } from "@/constants";
+import { fetchAPI, useFetch } from "@/lib/fetch";
+import { useLocationStore } from "@/store";
+import { useAuthStore } from "@/store/auth";
+import { Ride } from "@/types/type";
+
+type NearbyDriver = {
+  id: string;
+  name: string;
+  phone: string;
+  vehicleDetails: string | null;
+  latitude: number;
+  longitude: number;
+  distanceKm: number;
+  lastLocationUpdate: string | null;
+};
+
+const Home = () => {
+  const user = useAuthStore((state) => state.user);
+  const clearAuth = useAuthStore((state) => state.clearAuth);
+
+  const {
+    userLatitude,
+    userLongitude,
+    setUserLocation,
+    setDestinationLocation,
+  } = useLocationStore();
+
+  const [locationLoading, setLocationLoading] = useState(true);
+  const [driversLoading, setDriversLoading] = useState(false);
+  const [nearbyDrivers, setNearbyDrivers] = useState<NearbyDriver[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const {
+    data: recentRides,
+    loading,
+    refetch: refetchRides,
+  } = useFetch<Ride[]>("/api/rides/my-rides");
+
+  const handleSignOut = () => {
+    clearAuth();
+    router.replace("/(auth)/sign-in");
+  };
+
+  /**
+   * Get the passenger's current location.
+   */
+  useEffect(() => {
+    let mounted = true;
+
+    const getLocation = async () => {
+      try {
+        const { status } =
+          await Location.requestForegroundPermissionsAsync();
+
+        if (status !== "granted") {
+          if (!mounted) return;
+
+          setUserLocation({
+            latitude: -22.5609,
+            longitude: 17.0658,
+            address: "Windhoek, Namibia",
+          });
+
+          Alert.alert(
+            "Location Permission",
+            "Location access was denied. Showing Windhoek as your default location."
+          );
+
+          setLocationLoading(false);
+          return;
+        }
+
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+
+        let address = "Current Location";
+
+        try {
+          const places = await Location.reverseGeocodeAsync({
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+          });
+
+          if (places[0]) {
+            const place = places[0];
+
+            address =
+              `${place.name || place.street || ""}, ${
+                place.city || place.region || ""
+              }`
+                .replace(/^,\s*/, "")
+                .replace(/,\s*$/, "")
+                .trim() || "Current Location";
+          }
+        } catch (geoError) {
+          console.warn("Reverse geocode failed:", geoError);
+        }
+
+        if (!mounted) return;
+
+        setUserLocation({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          address,
+        });
+      } catch (error) {
+        console.error("Location error:", error);
+
+        if (!mounted) return;
+
+        setUserLocation({
+          latitude: -22.5609,
+          longitude: 17.0658,
+          address: "Windhoek, Namibia",
+        });
+      } finally {
+        if (mounted) {
+          setLocationLoading(false);
+        }
+      }
+    };
+
+    getLocation();
+
+    return () => {
+      mounted = false;
+    };
+  }, [setUserLocation]);
+
+  /**
+   * Get nearby available May drivers.
+   *
+   * The backend has already been tested successfully with:
+   *
+   * /api/rides/nearby-drivers
+   *
+   * fetchAPI automatically adds the passenger's JWT.
+   */
+  const loadNearbyDrivers = useCallback(async () => {
+    if (userLatitude === null || userLongitude === null) {
+      return;
+    }
+
+    try {
+      setDriversLoading(true);
+
+      const drivers = await fetchAPI(
+        `/api/rides/nearby-drivers?lat=${userLatitude}&lng=${userLongitude}&radius=10&limit=20`
+      );
+
+      if (Array.isArray(drivers)) {
+        setNearbyDrivers(drivers);
+      } else if (Array.isArray(drivers?.data)) {
+        setNearbyDrivers(drivers.data);
+      } else {
+        setNearbyDrivers([]);
+      }
+    } catch (error) {
+      console.error("Nearby drivers error:", error);
+      setNearbyDrivers([]);
+    } finally {
+      setDriversLoading(false);
+    }
+  }, [userLatitude, userLongitude]);
+
+  /**
+   * Load nearby drivers whenever the passenger's
+   * location becomes available or changes.
+   */
+  useEffect(() => {
+    loadNearbyDrivers();
+  }, [loadNearbyDrivers]);
+
+  const handleDestinationPress = (location: {
+    latitude: number;
+    longitude: number;
+    address: string;
+  }) => {
+    setDestinationLocation(location);
+    router.push("/(root)/find-ride");
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+
+    try {
+      await Promise.all([
+        loadNearbyDrivers(),
+        refetchRides(),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const taxiCount = nearbyDrivers.length;
+
+  return (
+    <SafeAreaView className="bg-general-500 flex-1">
+      <FlatList
+        data={recentRides?.slice(0, 5) ?? []}
+        renderItem={({ item }) => <RideCard ride={item} />}
+        keyExtractor={(item, index) =>
+          item.id?.toString() ?? index.toString()
+        }
+        className="px-5"
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ paddingBottom: 100 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+          />
+        }
+        ListEmptyComponent={() => (
+          <View className="flex flex-col items-center justify-center py-10">
+            {!loading ? (
+              <>
+                <Image
+                  source={images.noResult}
+                  className="w-40 h-40"
+                  resizeMode="contain"
+                />
+                <Text className="text-sm">No recent rides found</Text>
+              </>
+            ) : (
+              <ActivityIndicator size="small" color="#000" />
+            )}
+          </View>
+        )}
+        ListHeaderComponent={
+          <>
+            <View className="flex flex-row items-center justify-between my-5">
+              <Text className="text-2xl font-JakartaExtraBold">
+                Welcome {user?.name ?? "Passenger"}
+              </Text>
+
+              <TouchableOpacity
+                onPress={handleSignOut}
+                className="justify-center items-center w-10 h-10 rounded-full bg-white"
+              >
+                <Image source={icons.out} className="w-4 h-4" />
+              </TouchableOpacity>
+            </View>
+
+            <LocationTextInput
+              icon={icons.search}
+              containerStyle="bg-white shadow-md shadow-neutral-300"
+              handlePress={handleDestinationPress}
+            />
+
+            <Text className="text-xl font-JakartaBold mt-5 mb-3">
+              Your current location
+            </Text>
+
+            <View
+              style={{
+                height: 300,
+                width: "100%",
+                borderRadius: 16,
+                overflow: "hidden",
+              }}
+              className="bg-transparent"
+            >
+              {locationLoading ? (
+                <View className="flex-1 items-center justify-center">
+                  <ActivityIndicator
+                    size="large"
+                    color="#0286FF"
+                  />
+                  <Text className="mt-2 text-sm text-gray-500">
+                    Getting location...
+                  </Text>
+                </View>
+              ) : (
+                <Map />
+              )}
+            </View>
+
+            {/* AVAILABLE TAXIS */}
+            <View className="mt-5 bg-white rounded-2xl p-4 shadow-sm">
+              <View className="flex-row items-center justify-between">
+                <View className="flex-row items-center">
+                  <Text className="text-2xl mr-2">🚕</Text>
+
+                  <View>
+                    <Text className="text-lg font-JakartaBold">
+                      May taxis nearby
+                    </Text>
+
+                    {driversLoading ? (
+                      <Text className="text-sm text-gray-500 mt-1">
+                        Checking availability...
+                      </Text>
+                    ) : (
+                      <Text className="text-sm text-gray-500 mt-1">
+                        {taxiCount === 0
+                          ? "No taxis currently available"
+                          : `${taxiCount} ${
+                              taxiCount === 1 ? "taxi" : "taxis"
+                            } available`}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+
+                {driversLoading ? (
+                  <ActivityIndicator
+                    size="small"
+                    color="#0286FF"
+                  />
+                ) : (
+                  <View className="bg-general-500 rounded-full px-3 py-2">
+                    <Text className="font-JakartaBold">
+                      {taxiCount}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              {taxiCount > 0 && (
+                <TouchableOpacity
+                  onPress={() =>
+                    router.push("/(root)/find-ride")
+                  }
+                  className="mt-4 bg-general-600 rounded-xl py-3 items-center"
+                >
+                  <Text className="font-JakartaBold text-white">
+                    Book a May taxi
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <Text className="text-xl font-JakartaBold mt-5 mb-3">
+              Recent Rides
+            </Text>
+          </>
+        }
+      />
+    </SafeAreaView>
+  );
+};
+
+export default Home;
+
+===== .\app\(root)\(tabs)\rides.tsx =====
+import { ActivityIndicator, FlatList, Image, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+import RideCard from "@/components/RideCard";
+import { images } from "@/constants";
+import { useFetch } from "@/lib/fetch";
+import { Ride } from "@/types/type";
+
+const Rides = () => {
+  const {
+    data: recentRides,
+    loading,
+    refetch,
+  } = useFetch<Ride[]>("/api/rides/my-rides");
+
+  return (
+    <SafeAreaView className="flex-1 bg-white">
+      <FlatList
+        data={recentRides}
+        renderItem={({ item }) => (
+          <RideCard ride={item} onVerified={refetch} />
+        )}
+        keyExtractor={(item) => String(item.id)}
+        className="px-5"
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{
+          paddingBottom: 100,
+        }}
+        ListEmptyComponent={() => (
+          <View className="flex flex-col items-center justify-center">
+            {!loading ? (
+              <>
+                <Image
+                  source={images.noResult}
+                  className="h-40 w-40"
+                  resizeMode="contain"
+                />
+                <Text className="text-sm">No recent rides found</Text>
+              </>
+            ) : (
+              <ActivityIndicator size="small" color="#000" />
+            )}
+          </View>
+        )}
+        ListHeaderComponent={
+          <Text className="my-5 text-2xl font-JakartaBold">
+            All Rides
+          </Text>
+        }
+      />
+    </SafeAreaView>
+  );
+};
+
+export default Rides;
+
+===== .\app\(root)\(tabs)\profile.tsx =====
+import { ScrollView, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+import InputField from "@/components/InputField";
+import { useAuthStore } from "@/store/auth";
+
+const Profile = () => {
+  const user = useAuthStore((state) => state.user);
+
+  return (
+    <SafeAreaView className="flex-1">
+      <ScrollView className="px-5" contentContainerStyle={{ paddingBottom: 120 }}>
+        <Text className="text-2xl font-JakartaBold my-5">My profile</Text>
+
+        <View className="flex flex-col items-start justify-center bg-white rounded-lg shadow-sm shadow-neutral-300 px-5 py-3">
+          <InputField
+            label="Name"
+            placeholder={user?.name || "Not Found"}
+            containerStyle="w-full"
+            inputStyle="p-3.5"
+            editable={false}
+          />
+          <InputField
+            label="Email"
+            placeholder={user?.email || "Not Found"}
+            containerStyle="w-full"
+            inputStyle="p-3.5"
+            editable={false}
+          />
+          <InputField
+            label="Role"
+            placeholder={user?.role || "Not Found"}
+            containerStyle="w-full"
+            inputStyle="p-3.5"
+            editable={false}
+          />
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+};
+
+export default Profile;
+
+===== .\app\(root)\(tabs)\_layout.tsx =====
+import { Tabs } from "expo-router";
+import { Image, ImageSourcePropType, View } from "react-native";
+
+import { icons } from "@/constants";
+
+const TabIcon = ({
+  source,
+  focused,
+}: {
+  source: ImageSourcePropType;
+  focused: boolean;
+}) => (
+  <View
+    className={`flex flex-row justify-center items-center rounded-full ${focused ? "bg-general-300" : ""}`}
+  >
+    <View
+      className={`rounded-full w-12 h-12 items-center justify-center ${focused ? "bg-general-400" : ""}`}
+    >
+      <Image
+        source={source}
+        tintColor="white"
+        resizeMode="contain"
+        className="w-7 h-7"
+      />
+    </View>
+  </View>
+);
+
+export default function Layout() {
+  return (
+    <Tabs
+      initialRouteName="home"
+      screenOptions={{
+        tabBarActiveTintColor: "white",
+        tabBarInactiveTintColor: "white",
+        tabBarShowLabel: false,
+        tabBarStyle: {
+          backgroundColor: "#333333",
+          borderRadius: 50,
+          paddingBottom: 0, // ios only
+          overflow: "hidden",
+          marginHorizontal: 20,
+          marginBottom: 20,
+          height: 78,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexDirection: "row",
+          position: "absolute",
+        },
+      }}
+    >
+      <Tabs.Screen
+        name="home"
+        options={{
+          title: "Home",
+          headerShown: false,
+          tabBarIcon: ({ focused }) => (
+            <TabIcon source={icons.home} focused={focused} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="rides"
+        options={{
+          title: "Rides",
+          headerShown: false,
+          tabBarIcon: ({ focused }) => (
+            <TabIcon source={icons.list} focused={focused} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="chat"
+        options={{
+          title: "Chat",
+          headerShown: false,
+          tabBarIcon: ({ focused }) => (
+            <TabIcon source={icons.chat} focused={focused} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: "Profile",
+          headerShown: false,
+          tabBarIcon: ({ focused }) => (
+            <TabIcon source={icons.profile} focused={focused} />
+          ),
+        }}
+      />
+    </Tabs>
+  );
+}
+
+===== .\app\(root)\driver.tsx =====
+import { router } from "expo-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
+  ScrollView,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import * as Location from "expo-location";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+import { fetchAPI } from "@/lib/fetch";
+import { useAuthStore } from "@/store/auth";
+
+type DriverProfile = {
+  license_number: string | null;
+  vehicle_details: string | null;
+  vetting_status: "Pending" | "Approved" | "Rejected" | string;
+  background_check: boolean;
+  is_available: boolean;
+  current_lat: number | null;
+  current_lng: number | null;
+};
+
+type DriverRide = {
+  id: string;
+  passenger_name?: string | null;
+  passenger_phone?: string | null;
+  pickup?: string | null;
+  dropoff?: string | null;
+  status?: string | null;
+  emergency_flag?: boolean;
+  driver_finished?: boolean;
+  safe_arrived?: boolean;
+  created_at?: string;
+};
+
+const statusColor = (status?: string | null) => {
+  switch ((status || "Pending").toLowerCase()) {
+    case "active": return "#176B3A";
+    case "completed": return "#475569";
+    case "cancelled": return "#B42318";
+    default: return "#9A6700";
+  }
+};
+
+const formatDate = (value?: string) => {
+  if (!value) return "Date unavailable";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Date unavailable" : date.toLocaleString();
+};
+
+const toRideList = (value: any): DriverRide[] =>
+  Array.isArray(value) ? value : Array.isArray(value?.data) ? value.data : [];
+
+export default function DriverDashboard() {
+  const user = useAuthStore((state) => state.user);
+  const clearAuth = useAuthStore((state) => state.clearAuth);
+
+  const [profile, setProfile] = useState<DriverProfile | null>(null);
+  const [rides, setRides] = useState<DriverRide[]>([]);
+  const [licenseNumber, setLicenseNumber] = useState("");
+  const [vehicleDetails, setVehicleDetails] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [actionRideId, setActionRideId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadDashboard = useCallback(async (showSpinner = true) => {
+    if (showSpinner) setLoading(true);
+    setError(null);
+    try {
+      const [profileResult, rideResult] = await Promise.all([
+        fetchAPI("/api/driver/profile"),
+        fetchAPI("/api/driver/rides"),
+      ]);
+      const nextProfile: DriverProfile = profileResult?.profile ?? profileResult;
+      setProfile(nextProfile);
+      setLicenseNumber(nextProfile?.license_number ?? "");
+      setVehicleDetails(nextProfile?.vehicle_details ?? "");
+      setRides(toRideList(rideResult));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load the driver dashboard.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user?.role !== "Driver") {
+      router.replace(user?.role === "Admin" ? "/admin" : "/(root)/(tabs)/home");
+      return;
+    }
+    loadDashboard();
+  }, [loadDashboard, user?.role]);
+
+  const activeRides = useMemo(
+    () => rides.filter((ride) => ["active", "pending"].includes((ride.status || "").toLowerCase())),
+    [rides]
+  );
+  const pendingRides = rides.filter((ride) => (ride.status || "").toLowerCase() === "pending");
+  const currentRides = rides.filter((ride) => {
+    const status = (ride.status || "").toLowerCase();
+    return status === "pending" || (status === "active" && !ride.driver_finished);
+  });
+  const waitingForPassenger = rides.filter(
+    (ride) => (ride.status || "").toLowerCase() === "active" && ride.driver_finished && !ride.safe_arrived
+  );
+  const completedRides = rides.filter((ride) => (ride.status || "").toLowerCase() === "completed");
+  const isBusy = activeRides.length > 0;
+  const isApproved = profile?.vetting_status === "Approved";
+
+  const refresh = async () => {
+    setRefreshing(true);
+    try { await loadDashboard(false); }
+    finally { setRefreshing(false); }
+  };
+
+  const updateDriverLocation = async () => {
+    const permission = await Location.requestForegroundPermissionsAsync();
+    if (permission.status !== "granted") {
+      throw new Error("Location permission is required to share your position while online.");
+    }
+    const position = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced,
+    });
+    await fetchAPI("/api/driver/location", {
+      method: "PATCH",
+      body: JSON.stringify({
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+      }),
+    });
+  };
+
+  const toggleAvailability = async (nextValue: boolean) => {
+    if (!profile || availabilityLoading) return;
+    if (nextValue && !isApproved) {
+      Alert.alert("Approval required", "Your driver profile must be approved by May before you can go online.");
+      return;
+    }
+    if (nextValue && isBusy) {
+      Alert.alert("Ride in progress", "Finish the assigned ride and wait for the passenger to confirm safe arrival before going online.");
+      return;
+    }
+
+    setAvailabilityLoading(true);
+    try {
+      const result = await fetchAPI("/api/driver/availability", {
+        method: "PATCH",
+        body: JSON.stringify({ isAvailable: nextValue }),
+      });
+      setProfile((previous) => previous
+        ? { ...previous, is_available: Boolean(result?.isAvailable ?? nextValue) }
+        : previous);
+
+      if (nextValue) {
+        try {
+          await updateDriverLocation();
+        } catch (locationError) {
+          Alert.alert(
+            "Location not updated",
+            locationError instanceof Error
+              ? `${locationError.message} You are online, but passengers may not see your current location.`
+              : "You are online, but your location could not be updated."
+          );
+        }
+      }
+      await loadDashboard(false);
+    } catch (err) {
+      Alert.alert("Availability not changed", err instanceof Error ? err.message : "Please try again.");
+    } finally {
+      setAvailabilityLoading(false);
+    }
+  };
+
+  const saveProfile = async () => {
+    if (savingProfile) return;
+    if (!licenseNumber.trim() || !vehicleDetails.trim()) {
+      Alert.alert("Missing details", "Enter your driver's licence number and vehicle details.");
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      const result = await fetchAPI("/api/driver/profile", {
+        method: "PATCH",
+        body: JSON.stringify({
+          licenseNumber: licenseNumber.trim(),
+          vehicleDetails: vehicleDetails.trim(),
+        }),
+      });
+      const updated = result?.profile ?? result;
+      setProfile((previous) => previous ? { ...previous, ...updated } : updated);
+      Alert.alert("Details saved", "Your driver details have been submitted. May must approve your profile before you can go online.");
+    } catch (err) {
+      Alert.alert("Could not save details", err instanceof Error ? err.message : "Please try again.");
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const runRideAction = (ride: DriverRide, action: "start" | "finish") => {
+    if (!ride.id || actionRideId) return;
+    const isStart = action === "start";
+    Alert.alert(
+      isStart ? "Start this ride?" : "Confirm destination reached?",
+      isStart
+        ? `Confirm that you have picked up ${ride.passenger_name || "the passenger"}.`
+        : "Only confirm once you have reached the passenger's destination. The passenger must still enter their Safe Arrival Code before the ride is completed and you are released.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: isStart ? "Start ride" : "I reached the destination",
+          onPress: async () => {
+            setActionRideId(ride.id);
+            try {
+              await fetchAPI(
+                isStart ? `/api/driver/start-ride/${ride.id}` : `/api/driver/end-ride/${ride.id}`,
+                { method: "PATCH" }
+              );
+              await loadDashboard(false);
+              Alert.alert(
+                isStart ? "Ride started" : "Waiting for passenger",
+                isStart
+                  ? "Drive safely. The passenger will confirm safe arrival at the end."
+                  : "The passenger must confirm the Safe Arrival Code. You remain unavailable until that confirmation succeeds."
+              );
+            } catch (err) {
+              Alert.alert("Ride update failed", err instanceof Error ? err.message : "Please try again.");
+            } finally {
+              setActionRideId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const signOut = () => {
+    Alert.alert("Sign out?", "You will be signed out of May.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Sign out",
+        style: "destructive",
+        onPress: () => {
+          clearAuth();
+          router.replace("/(auth)/sign-in");
+        },
+      },
+    ]);
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView className="flex-1 items-center justify-center bg-[#F5F7FA]">
+        <ActivityIndicator size="large" color="#176B3A" />
+        <Text className="mt-3 text-sm text-[#64748B]">Loading driver dashboard…</Text>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView className="flex-1 bg-[#F5F7FA]">
+      <ScrollView
+  className="flex-1"
+  contentContainerStyle={{
+    padding: 20,
+    paddingBottom: 120,
+    flexGrow: 1,
+  }}
+  showsVerticalScrollIndicator={true}
+  keyboardShouldPersistTaps="handled"
+  refreshControl={
+    <RefreshControl
+      refreshing={refreshing}
+      onRefresh={refresh}
+    />
+  }
+>
+        <View className="mb-6 flex-row items-center justify-between">
+          <View className="flex-1 pr-3">
+            <Text className="text-sm font-bold uppercase tracking-widest text-[#64748B]">MAY DRIVER</Text>
+            <Text className="mt-1 text-2xl font-extrabold text-[#14213D]">Hello, {user?.name || "Driver"}</Text>
+            <Text className="mt-1 text-sm text-[#64748B]">Your trips, profile and availability</Text>
+          </View>
+          <TouchableOpacity onPress={signOut} className="rounded-xl border border-[#D9E0EA] bg-white px-4 py-3">
+            <Text className="font-semibold text-[#14213D]">Sign out</Text>
+          </TouchableOpacity>
+        </View>
+
+        {error && (
+          <View className="mb-4 rounded-2xl border border-[#FECACA] bg-white p-4">
+            <Text className="font-bold text-[#B42318]">Dashboard could not fully load</Text>
+            <Text className="mt-1 text-sm text-[#475569]">{error}</Text>
+            <TouchableOpacity onPress={() => loadDashboard()} className="mt-3 rounded-xl bg-[#14213D] p-3">
+              <Text className="text-center font-bold text-white">Try again</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        <View className="mb-5 rounded-3xl bg-[#14213D] p-5">
+          <Text className="text-lg font-extrabold text-white">Driver approval</Text>
+          <Text className="mt-2 text-base font-bold text-[#A7F3D0]">
+            {profile?.vetting_status || "Profile not found"}
+          </Text>
+          <Text className="mt-2 text-sm leading-5 text-[#D5DEEA]">
+            {isApproved
+              ? "Your profile is approved. You can go online when you have no unfinished rides."
+              : profile?.vetting_status === "Rejected"
+                ? "Your application was rejected. Contact May support before attempting to drive."
+                : "Your application is pending review. Complete your licence and vehicle details below."}
+          </Text>
+          <View className="mt-5 flex-row items-center justify-between border-t border-white/15 pt-4">
+            <View className="flex-1 pr-3">
+              <Text className="text-base font-bold text-white">Availability</Text>
+              <Text className="mt-1 text-sm text-[#D5DEEA]">
+                {isBusy ? "You have an unfinished ride." : profile?.is_available ? "You are online." : "You are offline."}
+              </Text>
+            </View>
+            {availabilityLoading ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Switch
+                accessibilityLabel="Go online or offline"
+                value={profile?.is_available === true}
+                onValueChange={toggleAvailability}
+                disabled={!profile || (!isApproved && !profile.is_available) || isBusy}
+                trackColor={{ false: "#64748B", true: "#63D5A3" }}
+                thumbColor="#FFFFFF"
+              />
+            )}
+          </View>
+          {isBusy && <Text className="mt-3 text-xs text-[#FDE68A]">You cannot go online again until the passenger confirms safe arrival.</Text>}
+        </View>
+
+        <View className="mb-5 rounded-2xl border border-[#E2E8F0] bg-white p-5">
+          <Text className="text-lg font-extrabold text-[#14213D]">Driver and vehicle details</Text>
+          <Text className="mt-1 text-sm leading-5 text-[#64748B]">Keep these details accurate so May can review your application.</Text>
+          <Text className="mb-1 mt-4 text-sm font-bold text-[#334155]">Driver's licence number</Text>
+          <TextInput
+            value={licenseNumber}
+            onChangeText={setLicenseNumber}
+            placeholder="Enter licence number"
+            autoCapitalize="characters"
+            editable={!savingProfile}
+            className="rounded-xl border border-[#CBD5E1] bg-white px-4 py-3 text-[#14213D]"
+          />
+          <Text className="mb-1 mt-4 text-sm font-bold text-[#334155]">Vehicle details</Text>
+          <TextInput
+            value={vehicleDetails}
+            onChangeText={setVehicleDetails}
+            placeholder="Make, model, colour and registration"
+            multiline
+            editable={!savingProfile}
+            className="min-h-20 rounded-xl border border-[#CBD5E1] bg-white px-4 py-3 text-[#14213D]"
+          />
+          <TouchableOpacity
+            onPress={saveProfile}
+            disabled={savingProfile}
+            className={`mt-4 rounded-xl p-4 ${savingProfile ? "bg-[#94A3B8]" : "bg-[#176B3A]"}`}
+          >
+            {savingProfile ? <ActivityIndicator color="#FFFFFF" /> : <Text className="text-center font-extrabold text-white">Save driver details</Text>}
+          </TouchableOpacity>
+        </View>
+
+        <View className="mb-5 flex-row gap-3">
+          <View className="flex-1 rounded-2xl border border-[#E2E8F0] bg-white p-4">
+            <Text className="text-sm text-[#64748B]">Waiting</Text>
+            <Text className="mt-1 text-2xl font-extrabold text-[#14213D]">{pendingRides.length}</Text>
+          </View>
+          <View className="flex-1 rounded-2xl border border-[#E2E8F0] bg-white p-4">
+            <Text className="text-sm text-[#64748B]">Awaiting safety code</Text>
+            <Text className="mt-1 text-2xl font-extrabold text-[#9A6700]">{waitingForPassenger.length}</Text>
+          </View>
+          <View className="flex-1 rounded-2xl border border-[#E2E8F0] bg-white p-4">
+            <Text className="text-sm text-[#64748B]">Completed</Text>
+            <Text className="mt-1 text-2xl font-extrabold text-[#14213D]">{completedRides.length}</Text>
+          </View>
+        </View>
+
+        <View className="mb-3 flex-row items-center justify-between">
+          <Text className="text-xl font-extrabold text-[#14213D]">Assigned rides</Text>
+          <TouchableOpacity onPress={refresh} className="rounded-lg px-3 py-2">
+            <Text className="font-bold text-[#176B3A]">Refresh</Text>
+          </TouchableOpacity>
+        </View>
+
+        {rides.length === 0 ? (
+          <View className="items-center rounded-2xl border border-dashed border-[#CBD5E1] bg-white px-5 py-10">
+            <Text className="text-lg font-bold text-[#14213D]">No assigned rides yet</Text>
+            <Text className="mt-2 text-center text-sm leading-5 text-[#64748B]">When a passenger is matched with you, the trip will appear here.</Text>
+          </View>
+        ) : rides.map((ride) => {
+          const status = ride.status || "Pending";
+          const isPending = status.toLowerCase() === "pending";
+          const isActive = status.toLowerCase() === "active";
+          const isWaitingForPassenger = isActive && ride.driver_finished === true && !ride.safe_arrived;
+          const isBusyAction = actionRideId === ride.id;
+
+          return (
+            <View key={ride.id} className="mb-4 rounded-2xl border border-[#E2E8F0] bg-white p-5">
+              <View className="mb-4 flex-row items-start justify-between">
+                <View className="flex-1 pr-3">
+                  <Text className="text-base font-extrabold text-[#14213D]">{ride.passenger_name || "Passenger"}</Text>
+                  {!!ride.passenger_phone && <Text className="mt-1 text-sm text-[#64748B]">{ride.passenger_phone}</Text>}
+                </View>
+                <View className="rounded-full px-3 py-1" style={{ backgroundColor: `${statusColor(status)}18` }}>
+                  <Text className="text-xs font-bold" style={{ color: statusColor(status) }}>{isWaitingForPassenger ? "Awaiting safe arrival" : status}</Text>
+                </View>
+              </View>
+
+              {ride.emergency_flag && (
+                <View className="mb-3 rounded-xl bg-[#FEE2E2] p-3">
+                  <Text className="font-bold text-[#B42318]">Safety alert flagged for this ride</Text>
+                  <Text className="mt-1 text-sm text-[#7F1D1D]">Follow May's emergency procedure and contact emergency services if needed.</Text>
+                </View>
+              )}
+
+              <View className="mb-3 rounded-xl bg-[#F8FAFC] p-3">
+                <Text className="text-xs font-bold uppercase tracking-wide text-[#64748B]">Pickup</Text>
+                <Text className="mt-1 text-sm font-semibold text-[#14213D]">{ride.pickup || "Pickup not provided"}</Text>
+              </View>
+              <View className="mb-3 rounded-xl bg-[#F8FAFC] p-3">
+                <Text className="text-xs font-bold uppercase tracking-wide text-[#64748B]">Destination</Text>
+                <Text className="mt-1 text-sm font-semibold text-[#14213D]">{ride.dropoff || "Destination not provided"}</Text>
+              </View>
+              <Text className="mb-4 text-xs text-[#94A3B8]">Booked: {formatDate(ride.created_at)}</Text>
+
+              {isPending && (
+                <TouchableOpacity disabled={isBusyAction} onPress={() => runRideAction(ride, "start")} className={`rounded-xl p-4 ${isBusyAction ? "bg-[#94A3B8]" : "bg-[#176B3A]"}`}>
+                  {isBusyAction ? <ActivityIndicator color="#FFFFFF" /> : <Text className="text-center font-extrabold text-white">Start ride</Text>}
+                </TouchableOpacity>
+              )}
+
+              {isActive && !ride.driver_finished && (
+                <TouchableOpacity disabled={isBusyAction} onPress={() => runRideAction(ride, "finish")} className={`rounded-xl border border-[#176B3A] p-4 ${isBusyAction ? "bg-[#F1F5F9]" : "bg-white"}`}>
+                  {isBusyAction ? <ActivityIndicator color="#176B3A" /> : <Text className="text-center font-extrabold text-[#176B3A]">Reached destination</Text>}
+                </TouchableOpacity>
+              )}
+
+              {isWaitingForPassenger && (
+                <View className="rounded-xl bg-[#FEF3C7] p-4">
+                  <Text className="font-bold text-[#92400E]">Waiting for passenger confirmation</Text>
+                  <Text className="mt-1 text-sm leading-5 text-[#92400E]">Ask the passenger to enter their Safe Arrival Code in their May app. You remain unavailable until May verifies the code.</Text>
+                </View>
+              )}
+            </View>
+          );
+        })}
+
+        <Text className="mt-3 text-center text-xs leading-5 text-[#94A3B8]">May — Safe for Her. Keep passenger information confidential and follow safety procedures on every trip.</Text>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+===== .\app\(root)\confirm-ride.tsx =====
+import { router } from "expo-router";
+import { FlatList, Text, View } from "react-native";
+
+import CustomButton from "@/components/CustomButton";
+import DriverCard from "@/components/DriverCard";
+import RideLayout from "@/components/RideLayout";
+import { useDriverStore } from "@/store";
+
+const ConfirmRide = () => {
+  const { drivers, selectedDriver, setSelectedDriver } = useDriverStore();
+
+  const handleContinue = () => {
+    if (!selectedDriver) {
+      return;
+    }
+
+    router.push("/(root)/book-ride");
+  };
+
+  return (
+    <RideLayout title="Choose a May Taxi" snapPoints={["65%", "85%"]}>
+      <FlatList
+        data={drivers}
+        keyExtractor={(item, index) =>
+          item.id?.toString() ?? index.toString()
+        }
+        renderItem={({ item }) => {
+          /*
+           * The driver store currently contains the old MarkerData
+           * structure. Convert it into the structure expected by
+           * the new May DriverCard.
+           */
+          const driver = {
+            id: item.id,
+            name: item.title ?? "May Driver",
+            phone: "",
+            vehicleDetails: item.car_image_url ?? null,
+            latitude: item.latitude ?? 0,
+            longitude: item.longitude ?? 0,
+            distanceKm: 0,
+            lastLocationUpdate: null,
+          };
+
+          return (
+            <DriverCard
+              item={driver}
+              selected={selectedDriver}
+              setSelected={() => setSelectedDriver(item.id!)}
+            />
+          );
+        }}
+        ListEmptyComponent={() => (
+          <View className="items-center justify-center py-10 px-5">
+            <Text className="text-lg font-JakartaBold text-center">
+              No May taxis available
+            </Text>
+
+            <Text className="text-sm text-gray-500 text-center mt-2">
+              There are currently no available taxis near your location.
+              Please try again shortly.
+            </Text>
+          </View>
+        )}
+        ListFooterComponent={() => (
+          <View className="mx-5 mt-10 mb-5">
+            <CustomButton
+              title="Continue"
+              onPress={handleContinue}
+              disabled={!selectedDriver}
+            />
+          </View>
+        )}
+      />
+    </RideLayout>
+  );
+};
+
+export default ConfirmRide;
+
+===== .\app\(root)\find-ride.tsx =====
+import { router } from "expo-router";
+import { Text, View } from "react-native";
+
+import CustomButton from "@/components/CustomButton";
+import LocationTextInput from "@/components/LocationTextInput";
+import RideLayout from "@/components/RideLayout";
+import { icons } from "@/constants";
+import { useLocationStore } from "@/store";
+
+const FindRide = () => {
+  const {
+    userAddress,
+    destinationAddress,
+    setDestinationLocation,
+    setUserLocation,
+  } = useLocationStore();
+
+  const handleFindRide = () => {
+    if (!userAddress) {
+      return;
+    }
+
+    if (!destinationAddress) {
+      return;
+    }
+
+    router.push("/(root)/confirm-ride");
+  };
+
+  return (
+    <RideLayout title="Ride">
+      <View className="my-3">
+        <Text className="text-lg font-JakartaSemiBold mb-3">
+          From
+        </Text>
+
+        <LocationTextInput
+          icon={icons.target}
+          initialLocation={userAddress || "Current Location"}
+          containerStyle="bg-neutral-100"
+          textInputBackgroundColor="#f5f5f5"
+          handlePress={(location) =>
+            setUserLocation(location)
+          }
+        />
+      </View>
+
+      <View className="my-3">
+        <Text className="text-lg font-JakartaSemiBold mb-3">
+          To
+        </Text>
+
+        <LocationTextInput
+          icon={icons.map}
+          initialLocation={
+            destinationAddress || "Search destination"
+          }
+          containerStyle="bg-neutral-100"
+          textInputBackgroundColor="transparent"
+          handlePress={(location) =>
+            setDestinationLocation(location)
+          }
+        />
+      </View>
+
+      <CustomButton
+        title="Find Now"
+        onPress={handleFindRide}
+        className="mt-5"
+      />
+    </RideLayout>
+  );
+};
+
+export default FindRide;
+
+===== .\app\(root)\book-ride.tsx =====
+import { router } from "expo-router";
+import { useState } from "react";
+import {
+  Alert,
+  Image,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+
+import CustomButton from "@/components/CustomButton";
+import RideLayout from "@/components/RideLayout";
+import { icons } from "@/constants";
+import { fetchAPI } from "@/lib/fetch";
+import { useLocationStore } from "@/store";
+
+const BookRide = () => {
+  const {
+    userAddress,
+    destinationAddress,
+    userLatitude,
+    userLongitude,
+    destinationLatitude,
+    destinationLongitude,
+  } = useLocationStore();
+
+  const [submitting, setSubmitting] = useState(false);
+  const [safeArrivalCode, setSafeArrivalCode] = useState<string | null>(null);
+  const [driverAssigned, setDriverAssigned] = useState(false);
+
+  const [enteredCode, setEnteredCode] = useState("");
+  const [rideId, setRideId] = useState<string | number | null>(null);
+  const [confirmingArrival, setConfirmingArrival] = useState(false);
+  const [arrivalConfirmed, setArrivalConfirmed] = useState(false);
+
+  const handleConfirmRide = async () => {
+    if (!userAddress || !destinationAddress) {
+      Alert.alert(
+        "Missing information",
+        "Pickup and dropoff locations are required."
+      );
+      return;
+    }
+
+    if (
+      typeof userLatitude !== "number" ||
+      typeof userLongitude !== "number"
+    ) {
+      Alert.alert(
+        "Missing information",
+        "Your current location could not be determined."
+      );
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const data = await fetchAPI("/api/rides/book", {
+        method: "POST",
+        body: JSON.stringify({
+          pickup: userAddress,
+          dropoff: destinationAddress,
+          pickupLat: userLatitude,
+          pickupLng: userLongitude,
+          dropoffLat: destinationLatitude,
+          dropoffLng: destinationLongitude,
+        }),
+      });
+
+      if (!data.ride?.id || !data.ride?.safe_arrival_code) {
+        throw new Error("The booking response is missing ride details.");
+      }
+
+      setSafeArrivalCode(data.ride.safe_arrival_code);
+      setDriverAssigned(data.driverAssigned);
+      setRideId(data.ride.id);
+    } catch (err: any) {
+      Alert.alert("Error", err.message || "Booking failed. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSubmitSafeArrival = async () => {
+    if (rideId === null) {
+      Alert.alert("Error", "Ride information is missing.");
+      return;
+    }
+
+    if (!enteredCode.trim()) {
+      Alert.alert("Missing code", "Please enter the Safe Arrival Code.");
+      return;
+    }
+
+    setConfirmingArrival(true);
+
+    try {
+      await fetchAPI(`/api/rides/safe-arrival/${rideId}`, {
+        method: "POST",
+        body: JSON.stringify({
+          code: enteredCode.trim(),
+        }),
+      });
+
+      setArrivalConfirmed(true);
+
+      Alert.alert(
+        "Safe Arrival Confirmed",
+        "Your ride has been marked as completed."
+      );
+    } catch (err: any) {
+      Alert.alert(
+        "Unable to Confirm",
+        err.message || "The Safe Arrival Code could not be verified."
+      );
+    } finally {
+      setConfirmingArrival(false);
+    }
+  };
+
+  return (
+    <RideLayout title="Book Ride">
+      <View className="flex flex-col w-full items-start justify-center mt-5">
+        <View className="flex flex-row items-center justify-start mt-3 border-t border-b border-general-700 w-full py-3">
+          <Image source={icons.to} className="w-6 h-6" />
+          <Text
+            className="text-lg font-JakartaRegular ml-2 flex-1"
+            numberOfLines={2}
+          >
+            {userAddress}
+          </Text>
+        </View>
+
+        <View className="flex flex-row items-center justify-start border-b border-general-700 w-full py-3">
+          <Image source={icons.point} className="w-6 h-6" />
+          <Text
+            className="text-lg font-JakartaRegular ml-2 flex-1"
+            numberOfLines={2}
+          >
+            {destinationAddress}
+          </Text>
+        </View>
+      </View>
+
+      {!safeArrivalCode ? (
+        <CustomButton
+          title={submitting ? "Booking..." : "Confirm Ride"}
+          onPress={handleConfirmRide}
+          className="mt-10"
+          disabled={submitting}
+        />
+      ) : (
+        <View className="flex flex-col w-full items-center justify-center mt-8">
+          <Text className="text-lg font-JakartaSemiBold text-center">
+            {driverAssigned
+              ? "Ride booked, driver assigned"
+              : "Ride booked, searching for a driver"}
+          </Text>
+
+          {!arrivalConfirmed ? (
+            <>
+              <Text className="text-md font-JakartaRegular mt-5">
+                Safe Arrival Code
+              </Text>
+
+              <Text className="text-3xl font-JakartaBold mt-1">
+                {safeArrivalCode}
+              </Text>
+
+              <Text className="text-md font-JakartaRegular mt-8 text-center">
+                Enter the Safe Arrival Code when you have arrived safely.
+              </Text>
+
+              <TextInput
+                value={enteredCode}
+                onChangeText={setEnteredCode}
+                placeholder="Enter Safe Arrival Code"
+                autoCapitalize="characters"
+                autoCorrect={false}
+                className="border border-gray-300 rounded-lg w-full mt-4 px-4 py-3 text-lg text-center"
+              />
+
+              <CustomButton
+                title={
+                  confirmingArrival
+                    ? "Confirming..."
+                    : "Confirm Safe Arrival"
+                }
+                onPress={handleSubmitSafeArrival}
+                className="mt-5"
+                disabled={confirmingArrival}
+              />
+            </>
+          ) : (
+            <>
+              <Text className="text-lg font-JakartaSemiBold mt-8 text-center">
+                Safe Arrival Confirmed
+              </Text>
+
+              <Text className="text-md font-JakartaRegular mt-2 text-center">
+                Your ride has been completed successfully.
+              </Text>
+
+              <CustomButton
+                title="Back to Home"
+                onPress={() => router.replace("/(root)/(tabs)/home")}
+                className="mt-8"
+              />
+            </>
+          )}
+        </View>
+      )}
+    </RideLayout>
+  );
+};
+
+export default BookRide;

@@ -18,25 +18,43 @@ const getAllDrivers = async (req, res) => {
 // PATCH /api/admin/approve-driver/:id
 const approveDriver = async (req, res) => {
   const { id } = req.params;
-  const { action } = req.body; // 'approve' or 'reject'
+  const { action } = req.body;
 
   if (!['approve', 'reject'].includes(action)) {
-    return res.status(400).json({ message: 'Action must be approve or reject' });
+    return res.status(400).json({
+      message: 'Action must be approve or reject',
+    });
   }
 
   try {
     const status = action === 'approve' ? 'Approved' : 'Rejected';
+
     const { rows } = await pool.query(
       `UPDATE drivers
-       SET vetting_status = $1, approved_by = $2
+       SET vetting_status = $1,
+           approved_by = $2,
+           is_available = CASE
+             WHEN $1 = 'Rejected' THEN FALSE
+             ELSE is_available
+           END
        WHERE id = $3
        RETURNING *`,
       [status, req.user.id, id]
     );
-    if (!rows.length) return res.status(404).json({ message: 'Driver not found' });
-    res.json({ message: `Driver ${status.toLowerCase()}`, driver: rows[0] });
+
+    if (!rows.length) {
+      return res.status(404).json({ message: 'Driver not found' });
+    }
+
+    res.json({
+      message: `Driver ${status.toLowerCase()} successfully`,
+      driver: rows[0],
+    });
   } catch (err) {
-    res.status(500).json({ message: 'Could not update driver', error: err.message });
+    console.error('Driver approval error:', err);
+    res.status(500).json({
+      message: 'Could not update driver approval',
+    });
   }
 };
 

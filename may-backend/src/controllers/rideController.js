@@ -189,59 +189,66 @@ const bookRide = async (req, res) => {
 // POST /api/rides/safe-arrival/:id
 const submitSafeArrival = async (req, res) => {
   const { id } = req.params;
-  const { code } = req.body;
+  const code = typeof req.body.code === 'string' ? req.body.code.trim().toUpperCase() : '';
 
+  if (!code) return res.status(400).json({ message: 'Safe-arrival code is required' });
+
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(
-      'SELECT * FROM rides WHERE id = $1 AND passenger_id = $2',
+    await client.query('BEGIN');
+
+    const { rows } = await client.query(
+      `SELECT * FROM rides
+       WHERE id = $1 AND passenger_id = $2
+       FOR UPDATE`,
       [id, req.user.id]
     );
 
     if (!rows.length) {
-      return res.status(404).json({
-        message: 'Ride not found'
-      });
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Ride not found' });
     }
 
     const ride = rows[0];
 
-    if (ride.safe_arrival_code !== code) {
-      return res.status(400).json({
-        message: 'Incorrect safe arrival code'
-      });
+    if (ride.safe_arrived || ride.status === 'Completed') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ message: 'Safe arrival has already been confirmed' });
     }
 
-    // Mark the ride as safely completed.
-    await pool.query(
+    if (ride.status !== 'Active' || ride.driver_finished !== true) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ message: 'Your driver must first confirm reaching the destination before you can confirm safe arrival.' });
+    }
+
+    if ((ride.safe_arrival_code || '').toUpperCase() !== code) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'Incorrect safe arrival code' });
+    }
+
+    await client.query(
       `UPDATE rides
-       SET safe_arrived = true,
-           status = $1
-       WHERE id = $2`,
-      ['Completed', id]
+       SET safe_arrived = true, status = 'Completed'
+       WHERE id = $1`,
+      [id]
     );
 
-    // The passenger has safely arrived, so release the driver.
-    // This makes the driver available for another ride.
     if (ride.driver_id) {
-      await pool.query(
-        `UPDATE drivers
-         SET is_available = true
-         WHERE user_id = $1`,
+      await client.query(
+        `UPDATE drivers SET is_available = true WHERE user_id = $1
+         AND vetting_status = 'Approved'`,
         [ride.driver_id]
       );
     }
 
-    res.json({
-      message: 'Safe arrival confirmed',
-      driverAvailable: !!ride.driver_id
-    });
+    await client.query('COMMIT');
+    res.json({ message: 'Safe arrival confirmed', driverAvailable: !!ride.driver_id });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('Safe arrival failed:', err);
-
-    res.status(500).json({
-      message: 'Safe arrival failed',
-      error: err.message
-    });
+    res.status(500).json({ message: 'Safe arrival failed', error: err.message });
+  } finally {
+    client.release();
   }
 };
 

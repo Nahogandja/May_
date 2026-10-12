@@ -47,6 +47,7 @@ declare interface Ride {
   dropoff: string;
   safe_arrival_code: string;
   safe_arrived: boolean;
+  driver_finished?: boolean;
   status: string;
   emergency_flag: boolean;
   created_at: string;

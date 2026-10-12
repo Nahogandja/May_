@@ -8,8 +8,15 @@ const Profile = () => {
   const user = useAuthStore((state) => state.user);
 
   return (
-    <SafeAreaView className="flex-1">
-      <ScrollView className="px-5" contentContainerStyle={{ paddingBottom: 120 }}>
+    <SafeAreaView className="flex-1 bg-white">
+  <ScrollView
+    className="flex-1 px-5"
+    contentContainerStyle={{
+      flexGrow: 1,
+      paddingBottom: 140,
+    }}
+    showsVerticalScrollIndicator={false}
+  >
         <Text className="text-2xl font-JakartaBold my-5">My profile</Text>
 
         <View className="flex flex-col items-start justify-center bg-white rounded-lg shadow-sm shadow-neutral-300 px-5 py-3">

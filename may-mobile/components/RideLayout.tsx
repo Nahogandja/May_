@@ -1,6 +1,4 @@
-import BottomSheet, {
-  BottomSheetView,
-} from "@gorhom/bottom-sheet";
+import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import { router } from "expo-router";
 import React, { useRef } from "react";
 import { Image, Text, TouchableOpacity, View } from "react-native";
@@ -21,37 +19,78 @@ const RideLayout = ({
   const bottomSheetRef = useRef<BottomSheet>(null);
 
   return (
-    <GestureHandlerRootView className="flex-1">
-      <View className="flex-1 bg-white">
-        <View className="flex flex-col h-screen bg-blue-500">
-          <View className="flex flex-row absolute z-10 top-16 items-center justify-start px-5">
-            <TouchableOpacity onPress={() => router.back()}>
-              <View className="w-10 h-10 bg-white rounded-full items-center justify-center">
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <View style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
+        <View style={{ flex: 1, backgroundColor: "#3B82F6" }}>
+          <View
+            style={{
+              position: "absolute",
+              zIndex: 10,
+              top: 56,
+              left: 0,
+              right: 0,
+              flexDirection: "row",
+              alignItems: "center",
+              paddingHorizontal: 20,
+            }}
+          >
+            <TouchableOpacity
+              onPress={() => router.back()}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              hitSlop={8}
+            >
+              <View
+                style={{
+                  width: 40,
+                  height: 40,
+                  backgroundColor: "#FFFFFF",
+                  borderRadius: 20,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
                 <Image
                   source={icons.backArrow}
                   resizeMode="contain"
-                  className="w-6 h-6"
+                  style={{ width: 24, height: 24 }}
                 />
               </View>
             </TouchableOpacity>
 
-            <Text className="text-xl font-JakartaSemiBold ml-5">
+            <Text
+              style={{
+                fontSize: 20,
+                fontWeight: "600",
+                marginLeft: 20,
+                color: "#111827",
+              }}
+              numberOfLines={1}
+            >
               {title || "Go Back"}
             </Text>
           </View>
 
-          <Map />
+          <View style={{ flex: 1 }}>
+            <Map />
+          </View>
         </View>
 
         <BottomSheet
           ref={bottomSheetRef}
-          snapPoints={snapPoints || ["40%", "85%"]}
+          snapPoints={snapPoints ?? ["40%", "85%"]}
           index={0}
+          enableDynamicSizing={false}
+          keyboardBehavior="interactive"
+          keyboardBlurBehavior="restore"
+          android_keyboardInputMode="adjustResize"
         >
           <BottomSheetView
             style={{
               flex: 1,
-              padding: 20,
+              paddingHorizontal: 20,
+              paddingTop: 16,
+              paddingBottom: 24,
             }}
           >
             {children}
