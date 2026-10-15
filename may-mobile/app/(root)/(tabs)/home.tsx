@@ -1,3 +1,4 @@
+
 import * as Location from "expo-location";
 import { router } from "expo-router";
 import { useState, useEffect, useCallback } from "react";
@@ -60,9 +61,7 @@ const Home = () => {
     router.replace("/(auth)/sign-in");
   };
 
-  /**
-   * Get the passenger's current location.
-   */
+  // Get the passenger's current location.
   useEffect(() => {
     let mounted = true;
 
@@ -147,15 +146,7 @@ const Home = () => {
     };
   }, [setUserLocation]);
 
-  /**
-   * Get nearby available May drivers.
-   *
-   * The backend has already been tested successfully with:
-   *
-   * /api/rides/nearby-drivers
-   *
-   * fetchAPI automatically adds the passenger's JWT.
-   */
+  // Load nearby available drivers.
   const loadNearbyDrivers = useCallback(async () => {
     if (userLatitude === null || userLongitude === null) {
       return;
@@ -183,10 +174,6 @@ const Home = () => {
     }
   }, [userLatitude, userLongitude]);
 
-  /**
-   * Load nearby drivers whenever the passenger's
-   * location becomes available or changes.
-   */
   useEffect(() => {
     loadNearbyDrivers();
   }, [loadNearbyDrivers]);
@@ -215,10 +202,17 @@ const Home = () => {
 
   const taxiCount = nearbyDrivers.length;
 
+  const activeRides = (recentRides ?? [])
+    .filter((ride) => {
+      const status = (ride.status || "Pending").toLowerCase();
+      return status === "pending" || status === "active";
+    })
+    .slice(0, 5);
+
   return (
     <SafeAreaView className="bg-general-500 flex-1">
       <FlatList
-        data={recentRides?.slice(0, 5) ?? []}
+        data={activeRides}
         renderItem={({ item }) => <RideCard ride={item} />}
         keyExtractor={(item, index) =>
           item.id?.toString() ?? index.toString()
@@ -241,7 +235,9 @@ const Home = () => {
                   className="w-40 h-40"
                   resizeMode="contain"
                 />
-                <Text className="text-sm">No recent rides found</Text>
+                <Text className="text-sm">
+                  No recent rides found
+                </Text>
               </>
             ) : (
               <ActivityIndicator size="small" color="#000" />
@@ -250,6 +246,7 @@ const Home = () => {
         )}
         ListHeaderComponent={
           <>
+            {/* Welcome and sign-out */}
             <View className="flex flex-row items-center justify-between my-5">
               <Text className="text-2xl font-JakartaExtraBold">
                 Welcome {user?.name ?? "Passenger"}
@@ -259,16 +256,21 @@ const Home = () => {
                 onPress={handleSignOut}
                 className="justify-center items-center w-10 h-10 rounded-full bg-white"
               >
-                <Image source={icons.out} className="w-4 h-4" />
+                <Image
+                  source={icons.out}
+                  className="w-4 h-4"
+                />
               </TouchableOpacity>
             </View>
 
+            {/* Destination search */}
             <LocationTextInput
               icon={icons.search}
               containerStyle="bg-white shadow-md shadow-neutral-300"
               handlePress={handleDestinationPress}
             />
 
+            {/* Current location */}
             <Text className="text-xl font-JakartaBold mt-5 mb-3">
               Your current location
             </Text>
@@ -297,11 +299,13 @@ const Home = () => {
               )}
             </View>
 
-            {/* AVAILABLE TAXIS */}
+            {/* Available May taxis */}
             <View className="mt-5 bg-white rounded-2xl p-4 shadow-sm">
               <View className="flex-row items-center justify-between">
                 <View className="flex-row items-center">
-                  <Text className="text-2xl mr-2">🚕</Text>
+                  <Text className="text-2xl mr-2">
+                    {"🚕"}
+                  </Text>
 
                   <View>
                     <Text className="text-lg font-JakartaBold">
@@ -352,9 +356,28 @@ const Home = () => {
               )}
             </View>
 
+            {/* Recent rides */}
             <Text className="text-xl font-JakartaBold mt-5 mb-3">
               Recent Rides
             </Text>
+
+            {/* View all rides */}
+            <TouchableOpacity
+              onPress={() =>
+                router.push("/(root)/(tabs)/rides")
+              }
+              className="mt-2 mb-4 bg-white rounded-2xl p-4 shadow-sm flex-row items-center justify-between"
+            >
+              <View>
+                <Text className="text-sm text-gray-500 mt-1">
+                  View your previous trips and verify arrivals
+                </Text>
+              </View>
+
+              <Text className="text-lg font-JakartaBold">
+                {"→"}
+              </Text>
+            </TouchableOpacity>
           </>
         }
       />

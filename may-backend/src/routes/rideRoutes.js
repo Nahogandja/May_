@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {
   getNearbyDrivers,
+  getAvailableCabs,
   bookRide,
   submitSafeArrival,
   myRides,
@@ -16,6 +17,12 @@ router.get(
   '/nearby-drivers',
   permit('Passenger'),
   getNearbyDrivers
+);
+
+router.get(
+  '/available-cabs',
+  permit('Passenger'),
+  getAvailableCabs
 );
 
 router.post('/book',                permit('Passenger'), bookRide);

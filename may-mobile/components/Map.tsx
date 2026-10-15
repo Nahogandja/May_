@@ -17,7 +17,7 @@ import { calculateDriverTimes } from "@/lib/map";
 import { useDriverStore, useLocationStore } from "@/store";
 import { Driver, MarkerData } from "@/types/type";
 
-const MAP_STYLE = "https://demotiles.maplibre.org/style.json";
+const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 
 const MapComponent = () => {
   const {
