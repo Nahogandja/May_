@@ -50,7 +50,10 @@ const updateProfile = async (req, res) => {
 const getAssignedRides = async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT r.*, u.name AS passenger_name, u.phone AS passenger_phone
+      `SELECT r.id, r.passenger_id, r.driver_id, r.pickup, r.dropoff,
+              r.status, r.safe_arrived, r.driver_finished, r.emergency_flag,
+              r.booking_mode, r.pricing_category, r.fare, r.shared_trip_id,
+              r.created_at, u.name AS passenger_name, u.phone AS passenger_phone
        FROM rides r
        JOIN users u ON r.passenger_id = u.id
        WHERE r.driver_id = $1
@@ -65,20 +68,40 @@ const getAssignedRides = async (req, res) => {
 
 // PATCH /api/driver/start-ride/:id
 const startRide = async (req, res) => {
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(
-      `UPDATE rides
-       SET status = 'Active', driver_finished = false
+    await client.query('BEGIN');
+    // Coordinate with reservation lock so bookings cannot join after trip starts.
+    const { rows: locked } = await client.query(
+      'SELECT user_id FROM drivers WHERE user_id = $1 FOR UPDATE',
+      [req.user.id],
+    );
+    if (!locked.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Driver profile not found' });
+    }
+    const { rows } = await client.query(
+      `UPDATE rides SET status = 'Active', driver_finished = FALSE
        WHERE id = $1 AND driver_id = $2 AND status = 'Pending'
        RETURNING *`,
-      [req.params.id, req.user.id]
+      [req.params.id, req.user.id],
     );
     if (!rows.length) {
-      return res.status(409).json({ message: 'Ride cannot be started. Check that it is assigned to you and has not already started.' });
+      await client.query('ROLLBACK');
+      return res.status(409).json({ message: 'Ride is not pending or is not assigned to you' });
     }
-    res.json({ message: 'Ride started', ride: rows[0] });
+    await client.query(
+      'UPDATE drivers SET is_available = FALSE WHERE user_id = $1',
+      [req.user.id],
+    );
+    await client.query('COMMIT');
+    return res.json({ message: 'Ride started', ride: rows[0] });
   } catch (err) {
-    res.status(500).json({ message: 'Could not start ride', error: err.message });
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Start ride error:', err);
+    return res.status(500).json({ message: 'Could not start ride' });
+  } finally {
+    client.release();
   }
 };
 
@@ -134,43 +157,47 @@ const updateLocation = async (req, res) => {
 
 // PATCH /api/driver/availability
 const setAvailability = async (req, res) => {
-  const { isAvailable } = req.body;
+  const { isAvailable } = req.body || {};
   if (typeof isAvailable !== 'boolean') {
     return res.status(400).json({ message: 'isAvailable must be true or false' });
   }
-
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(
-      `SELECT vetting_status, is_available
-       FROM drivers WHERE user_id = $1`,
-      [req.user.id]
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      'SELECT vetting_status, is_available FROM drivers WHERE user_id = $1 FOR UPDATE',
+      [req.user.id],
     );
-    if (!rows.length) return res.status(404).json({ message: 'Driver profile not found' });
-
+    if (!rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Driver profile not found' });
+    }
     if (isAvailable && rows[0].vetting_status !== 'Approved') {
+      await client.query('ROLLBACK');
       return res.status(403).json({ message: 'Driver is not yet approved to go online' });
     }
-
     if (isAvailable) {
-      const unfinished = await pool.query(
-        `SELECT id FROM rides
-         WHERE driver_id = $1 AND status IN ('Pending', 'Active')
-         LIMIT 1`,
-        [req.user.id]
+      const unfinished = await client.query(
+        `SELECT id FROM rides WHERE driver_id = $1
+         AND status IN ('Pending', 'Active') LIMIT 1`, [req.user.id],
       );
       if (unfinished.rows.length) {
-        return res.status(409).json({ message: 'You have an unfinished ride. The passenger must confirm safe arrival before you can go online.' });
+        await client.query('ROLLBACK');
+        return res.status(409).json({ message: 'Finish all assigned rides and wait for Safe Arrival confirmation before going online' });
       }
     }
-
-    const { rows: updated } = await pool.query(
-      `UPDATE drivers SET is_available = $1 WHERE user_id = $2
-       RETURNING is_available`,
-      [isAvailable, req.user.id]
+    const { rows: updated } = await client.query(
+      'UPDATE drivers SET is_available = $1 WHERE user_id = $2 RETURNING is_available',
+      [isAvailable, req.user.id],
     );
-    res.json({ message: 'Availability updated', isAvailable: updated[0].is_available });
+    await client.query('COMMIT');
+    return res.json({ message: 'Availability updated', isAvailable: updated[0].is_available });
   } catch (err) {
-    res.status(500).json({ message: 'Could not update availability', error: err.message });
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Availability error:', err);
+    return res.status(500).json({ message: 'Could not update availability' });
+  } finally {
+    client.release();
   }
 };
 

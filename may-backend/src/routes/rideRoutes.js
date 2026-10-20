@@ -5,6 +5,7 @@ const {
   getAvailableCabs,
   bookRide,
   submitSafeArrival,
+  cancelRide,
   myRides,
   emergency
 } = require('../controllers/rideController');
@@ -27,6 +28,7 @@ router.get(
 
 router.post('/book',                permit('Passenger'), bookRide);
 router.post('/safe-arrival/:id',    permit('Passenger'), submitSafeArrival);
+router.patch('/cancel/:id', permit('Passenger'), cancelRide);
 router.get('/my-rides',             permit('Passenger'), myRides);
 router.post('/emergency',           permit('Passenger'), emergency);
 

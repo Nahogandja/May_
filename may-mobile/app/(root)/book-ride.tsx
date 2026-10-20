@@ -20,6 +20,7 @@ const BookRide = () => {
     driverId?: string;
     driverName?: string;
     vehicleDetails?: string;
+    bookingMode?: "Sharing" | "Solo";
   }>();
 
   const driverId = Array.isArray(params.driverId)
@@ -33,6 +34,9 @@ const BookRide = () => {
   const vehicleDetails = Array.isArray(params.vehicleDetails)
     ? params.vehicleDetails[0]
     : params.vehicleDetails;
+
+  const bookingMode = params.bookingMode === "Sharing" ? "Sharing" : "Solo";
+  const displayFare = bookingMode === "Sharing" ? 15 : 30;
 
   const {
     userAddress,
@@ -86,6 +90,8 @@ const BookRide = () => {
       return;
     }
 
+    if (submitting || safeArrivalCode) return;
+
     setSubmitting(true);
 
     try {
@@ -99,7 +105,7 @@ const BookRide = () => {
           dropoffLat: destinationLatitude,
           dropoffLng: destinationLongitude,
           driverId,
-          bookingMode: "Solo",
+          bookingMode,
           pricingCategory: "Standard",
         }),
       });
@@ -117,7 +123,7 @@ const BookRide = () => {
 
       Alert.alert(
         "Booking Successful",
-        "Your May taxi has been reserved successfully."
+        `Your ${bookingMode.toLowerCase()} ride has been reserved successfully.`
       );
     } catch (err: any) {
       Alert.alert(
@@ -211,7 +217,7 @@ const BookRide = () => {
           </Text>
 
           <Text className="mt-3 font-JakartaSemiBold">
-            Booking Mode: Solo
+            Booking Mode: {bookingMode}
           </Text>
 
           <Text className="mt-1 font-JakartaSemiBold">
@@ -219,7 +225,7 @@ const BookRide = () => {
           </Text>
 
           <Text className="text-xl font-JakartaBold mt-3">
-            Total Fare: N$30.00
+            Total Fare: N${displayFare.toFixed(2)}
           </Text>
         </View>
       </View>
@@ -252,8 +258,8 @@ const BookRide = () => {
               </Text>
 
               <Text className="text-center text-gray-500 mt-5">
-                Enter this code only after your driver has
-                marked your destination as reached.
+                Enter this code after your driver marks your destination as reached.
+                For Sharing, each passenger verifies arrival independently.
               </Text>
 
               <TextInput

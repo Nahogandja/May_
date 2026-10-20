@@ -52,6 +52,10 @@ declare interface Ride {
   emergency_flag: boolean;
   created_at: string;
   driver_name: string | null;
+  booking_mode?: "Sharing" | "Solo";
+  pricing_category?: string;
+  fare?: number | string | null;
+  shared_trip_id?: string | null;
 }
 
 declare interface ButtonProps extends TouchableOpacityProps {

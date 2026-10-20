@@ -213,7 +213,7 @@ const Home = () => {
     <SafeAreaView className="bg-general-500 flex-1">
       <FlatList
         data={activeRides}
-        renderItem={({ item }) => <RideCard ride={item} />}
+        renderItem={({ item }) => <RideCard ride={item} onVerified={refetchRides} />}
         keyExtractor={(item, index) =>
           item.id?.toString() ?? index.toString()
         }

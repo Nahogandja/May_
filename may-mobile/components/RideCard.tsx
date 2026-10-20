@@ -34,18 +34,46 @@ const RideCard = ({ ride, onVerified }: RideCardProps) => {
     }
     setSubmitting(true);
     try {
-      await fetchAPI(`/api/rides/safe-arrival/${ride.id}`, {
+      const result = await fetchAPI(`/api/rides/safe-arrival/${ride.id}`, {
         method: "POST",
         body: JSON.stringify({ code: enteredCode.trim().toUpperCase() }),
       });
       if (onVerified) await onVerified();
-      Alert.alert("Safe Arrival Confirmed", "Your ride is completed and the driver has been released for another ride.");
+      Alert.alert(
+        "Safe Arrival Confirmed",
+        result?.driverAvailable
+          ? "Your ride is completed. The taxi is available for another booking."
+          : "Your ride is completed. The taxi stays reserved until all other passengers finish."
+      );
       setEnteredCode("");
     } catch (error) {
       Alert.alert("Unable to Confirm", error instanceof Error ? error.message : "The Safe Arrival Code could not be verified.");
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleCancelRide = () => {
+    if (submitting) return;
+    Alert.alert("Cancel this booking?", "You can cancel before the driver starts the ride.", [
+      { text: "Keep booking", style: "cancel" },
+      {
+        text: "Cancel ride",
+        style: "destructive",
+        onPress: async () => {
+          setSubmitting(true);
+          try {
+            await fetchAPI(`/api/rides/cancel/${ride.id}`, { method: "PATCH" });
+            if (onVerified) await onVerified();
+            Alert.alert("Booking cancelled", "Your taxi reservation has been released.");
+          } catch (err) {
+            Alert.alert("Cancellation failed", err instanceof Error ? err.message : "Please try again.");
+          } finally {
+            setSubmitting(false);
+          }
+        },
+      },
+    ]);
   };
 
   const statusColor =
@@ -79,6 +107,16 @@ const RideCard = ({ ride, onVerified }: RideCardProps) => {
             <Text className="text-md font-JakartaMedium text-gray-500">Status</Text>
             <Text className={`font-JakartaBold capitalize ${statusColor}`}>{status.replace(/_/g, " ")}</Text>
           </View>
+          <View className="mb-4 flex-row items-center justify-between">
+            <Text className="text-md font-JakartaMedium text-gray-500">Booking</Text>
+            <Text className="font-JakartaBold">{(ride as Ride & { booking_mode?: string }).booking_mode || "Sharing"}</Text>
+          </View>
+          <View className="mb-4 flex-row items-center justify-between">
+            <Text className="text-md font-JakartaMedium text-gray-500">Fare</Text>
+            <Text className="font-JakartaBold">
+              {ride.fare != null ? `N$${Number(ride.fare).toFixed(2)}` : "Not recorded"}
+            </Text>
+          </View>
           <View className="flex-row items-center justify-between">
             <Text className="flex-1 text-md font-JakartaMedium text-gray-500">Safe Arrival Code</Text>
             <Text className="ml-3 font-JakartaBold">{ride.safe_arrival_code || "Not available"}</Text>
@@ -92,10 +130,22 @@ const RideCard = ({ ride, onVerified }: RideCardProps) => {
           </View>
         )}
 
+        {status.toLowerCase() === "pending" && (
+          <Pressable
+            onPress={handleCancelRide}
+            disabled={submitting}
+            className="mt-3 items-center rounded-lg border border-red-300 bg-red-50 p-3"
+          >
+            <Text className="font-JakartaBold text-red-700">
+              {submitting ? "Cancelling..." : "Cancel pending booking"}
+            </Text>
+          </Pressable>
+        )}
+
         {readyForSafeArrival && (
           <View className="mt-4">
             <Text className="mb-2 font-JakartaSemiBold">Confirm your safe arrival</Text>
-            <Text className="mb-3 text-sm leading-5 text-gray-600">Enter the code only after you have safely exited the vehicle. This releases the driver for another ride.</Text>
+            <Text className="mb-3 text-sm leading-5 text-gray-600">Enter the code only after you have safely exited the vehicle. For shared rides, the driver is released only after every passenger confirms.</Text>
             <TextInput
               value={enteredCode}
               onChangeText={(text) => setEnteredCode(text.toUpperCase())}

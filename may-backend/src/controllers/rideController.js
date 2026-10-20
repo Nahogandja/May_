@@ -1,123 +1,89 @@
 const pool = require('../config/db');
+const { randomUUID, randomInt } = require('node:crypto');
+const { FARES, validCoordinate, kmBetween, eligibleForBooking } = require('../services/sharing');
 
-// Generate a 6-character alphanumeric safe-arrival code
-const generateCode = () =>
-  Math.random().toString(36).substring(2, 8).toUpperCase();
+// Cryptographically secure 6-character Safe Arrival codes.
+const generateCode = () => {
+  const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from({ length: 6 }, () => letters[randomInt(letters.length)]).join('');
+};
+
 // GET /api/rides/available-cabs
+// Pass dropoffLat/dropoffLng when searching for Sharing.
 const getAvailableCabs = async (req, res) => {
   const lat = Number(req.query.lat);
   const lng = Number(req.query.lng);
-  const radiusKm = Math.min(
-    Math.max(Number(req.query.radius) || 10, 1),
-    50
-  );
+  const radiusKm = Number(req.query.radius ?? 10);
+  const bookingMode = req.query.bookingMode || 'Solo';
+  const category = req.query.category || 'Standard';
+  const dropoffLat = Number(req.query.dropoffLat);
+  const dropoffLng = Number(req.query.dropoffLng);
 
-  const bookingMode =
-    req.query.bookingMode === 'Solo' ? 'Solo' : 'Sharing';
-
-  const category = ['Standard', 'Medium', 'Gold'].includes(
-    req.query.category
-  )
-    ? req.query.category
-    : null;
-
-  if (
-    !Number.isFinite(lat) ||
-    !Number.isFinite(lng) ||
-    lat < -90 || lat > 90 ||
-    lng < -180 || lng > 180
-  ) {
-    return res.status(400).json({
-      message: 'Valid lat and lng query parameters are required',
-    });
+  if (!validCoordinate(lat, lng) || !Number.isFinite(radiusKm) ||
+      radiusKm < 1 || radiusKm > 50) {
+    return res.status(400).json({ message: 'Valid pickup coordinates and 1-50 km radius are required' });
+  }
+  if (!Object.hasOwn(FARES, bookingMode)) {
+    return res.status(400).json({ message: 'Invalid booking mode' });
+  }
+  if (category !== 'Standard') {
+    return res.status(400).json({ message: 'Only Standard taxis are available for the demo' });
+  }
+  if (bookingMode === 'Sharing' && !validCoordinate(dropoffLat, dropoffLng)) {
+    return res.status(400).json({ message: 'Destination coordinates are required for Sharing' });
   }
 
   try {
-    const { rows } = await pool.query(
-      `SELECT
-         d.user_id AS driver_id,
-         u.name AS driver_name,
-         u.phone AS driver_phone,
-         d.vehicle_details,
-         d.seat_capacity,
-         d.vehicle_category,
-         d.current_lat AS latitude,
-         d.current_lng AS longitude,
-         (
-           6371 * acos(
-             LEAST(1, GREATEST(-1,
-               cos(radians($1)) * cos(radians(d.current_lat)) *
-               cos(radians(d.current_lng) - radians($2)) +
-               sin(radians($1)) * sin(radians(d.current_lat))
-             ))
-           )
-         ) AS distance_km,
-         CASE
-           WHEN $3 = 'Solo' THEN 0
-           ELSE d.seat_capacity - COUNT(r.id)::INTEGER
-         END AS seats_available
-       FROM drivers d
-       JOIN users u ON u.id = d.user_id
-       LEFT JOIN rides r
-         ON r.driver_id = d.user_id
-         AND r.status IN ('Pending', 'Active')
-       WHERE u.role = 'Driver'
-         AND d.vetting_status = 'Approved'
-         AND d.current_lat IS NOT NULL
-         AND d.current_lng IS NOT NULL
-         AND (
-           6371 * acos(
-             LEAST(1, GREATEST(-1,
-               cos(radians($1)) * cos(radians(d.current_lat)) *
-               cos(radians(d.current_lng) - radians($2)) +
-               sin(radians($1)) * sin(radians(d.current_lat))
-             ))
-           )
-         ) <= $4
-         AND ($5::VARCHAR IS NULL OR d.vehicle_category = $5)
-       GROUP BY d.user_id, u.name, u.phone,
-         d.vehicle_details, d.seat_capacity, d.vehicle_category,
-         d.current_lat, d.current_lng, d.is_available
-       HAVING
-         (
-           $3 = 'Solo'
-           AND COUNT(r.id) = 0
-           AND d.is_available = true
-         )
-         OR
-         (
-           $3 = 'Sharing'
-           AND d.seat_capacity - COUNT(r.id)::INTEGER > 0
-           AND (
-             COUNT(r.id) = 0
-             OR BOOL_AND(r.booking_mode = 'Sharing')
-           )
-         )
-       ORDER BY distance_km ASC`,
-      [lat, lng, bookingMode, radiusKm, category]
+    const { rows: drivers } = await pool.query(
+      `SELECT d.user_id, u.name, d.vehicle_details,
+              d.seat_capacity, d.vehicle_category, d.vetting_status,
+              d.is_available, d.current_lat, d.current_lng
+       FROM drivers d JOIN users u ON u.id = d.user_id
+       WHERE u.role = 'Driver' AND d.vetting_status = 'Approved'
+         AND d.is_available = TRUE AND d.vehicle_category = 'Standard'
+         AND d.current_lat IS NOT NULL AND d.current_lng IS NOT NULL`,
     );
 
-    res.json(rows.map((cab) => ({
-      driverId: cab.driver_id,
-      driverName: cab.driver_name,
-      driverPhone: cab.driver_phone,
-      vehicleDetails: cab.vehicle_details,
-      category: cab.vehicle_category,
-      bookingMode,
-      seatCapacity: Number(cab.seat_capacity),
-      seatsAvailable: Number(cab.seats_available),
-      distanceKm: Number(cab.distance_km),
-      latitude: Number(cab.latitude),
-      longitude: Number(cab.longitude),
-    })));
+    const nearby = drivers.filter((driver) => kmBetween(
+      lat, lng, Number(driver.current_lat), Number(driver.current_lng)) <= radiusKm);
+    if (!nearby.length) return res.json([]);
+
+    const { rows: rides } = await pool.query(
+      `SELECT driver_id, status, booking_mode, shared_trip_id,
+              pickup_lat, pickup_lng, dropoff_lat, dropoff_lng
+       FROM rides WHERE driver_id = ANY($1::uuid[])
+         AND status IN ('Pending', 'Active')`,
+      [nearby.map((d) => d.user_id)],
+    );
+    const requested = { pickupLat: lat, pickupLng: lng, dropoffLat, dropoffLng };
+    const result = nearby.flatMap((driver) => {
+      const unfinished = rides.filter((ride) => ride.driver_id === driver.user_id);
+      if (!eligibleForBooking({ driver, unfinished, mode: bookingMode, requested })) return [];
+      return [{
+        driverId: driver.user_id,
+        driverName: driver.name,
+        vehicleDetails: driver.vehicle_details,
+        category: driver.vehicle_category,
+        bookingMode,
+        seatCapacity: Number(driver.seat_capacity),
+        seatsAvailable: bookingMode === 'Solo' ? Number(driver.seat_capacity) :
+          Number(driver.seat_capacity) - unfinished.length,
+        distanceKm: Number(kmBetween(lat, lng, Number(driver.current_lat),
+          Number(driver.current_lng)).toFixed(2)),
+        latitude: Number(driver.current_lat),
+        longitude: Number(driver.current_lng),
+        fare: FARES[bookingMode],
+        joiningGroup: unfinished.length > 0,
+      }];
+    });
+    result.sort((a, b) => a.distanceKm - b.distanceKm);
+    return res.json(result);
   } catch (err) {
     console.error('Available cabs error:', err);
-    res.status(500).json({
-      message: 'Could not fetch available cabs',
-      error: err.message,
-    });
+    return res.status(500).json({ message: 'Could not fetch available cabs' });
   }
 };
+
 // GET /api/rides/nearby-drivers
 // Returns approved and available drivers near the passenger's location.
 const getNearbyDrivers = async (req, res) => {
@@ -218,232 +184,103 @@ const getNearbyDrivers = async (req, res) => {
     });
   }
 };
-// Finds the nearest approved, available driver to a given point using the
-// Haversine formula, computed directly in SQL so distance ranking happens
-// in the database rather than pulling every driver row into Node.
-const findNearestDriver = async (lat, lng) => {
-  const { rows } = await pool.query(
-    `SELECT
-       d.user_id,
-       d.current_lat,
-       d.current_lng,
-       (
-         6371 * acos(
-           cos(radians($1)) * cos(radians(d.current_lat)) *
-           cos(radians(d.current_lng) - radians($2)) +
-           sin(radians($1)) * sin(radians(d.current_lat))
-         )
-       ) AS distance_km
-     FROM drivers d
-     JOIN users u ON u.id = d.user_id
-     WHERE u.role = 'Driver'
-       AND d.vetting_status = 'Approved'
-       AND d.is_available = true
-       AND d.current_lat IS NOT NULL
-       AND d.current_lng IS NOT NULL
-     ORDER BY distance_km ASC
-     LIMIT 1`,
-    [lat, lng]
-  );
-
-  return rows[0] || null;
-};
-
 // POST /api/rides/book
 const bookRide = async (req, res) => {
-  const {
-    pickup,
-    dropoff,
-    pickupLat,
-    pickupLng,
-    dropoffLat,
-    dropoffLng,
-    driverId,
-    bookingMode,
-    pricingCategory,
-  } = req.body;
+  const { pickup, dropoff, pickupLat, pickupLng, dropoffLat, dropoffLng,
+    driverId, bookingMode, pricingCategory } = req.body || {};
 
-  if (
-    typeof pickup !== 'string' ||
-    !pickup.trim() ||
-    typeof dropoff !== 'string' ||
-    !dropoff.trim()
-  ) {
-    return res.status(400).json({
-      message: 'Pickup and dropoff locations are required',
-    });
+  if (typeof pickup !== 'string' || !pickup.trim() ||
+      typeof dropoff !== 'string' || !dropoff.trim()) {
+    return res.status(400).json({ message: 'Pickup and destination are required' });
+  }
+  if (!validCoordinate(pickupLat, pickupLng) ||
+      !validCoordinate(dropoffLat, dropoffLng)) {
+    return res.status(400).json({ message: 'Valid pickup and destination coordinates are required' });
+  }
+  if (typeof driverId !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(driverId)) {
+    return res.status(400).json({ message: 'Please select a valid May taxi' });
+  }
+  if (!Object.hasOwn(FARES, bookingMode) || pricingCategory !== 'Standard') {
+    return res.status(400).json({ message: 'Choose Standard Solo or Standard Sharing' });
   }
 
-  if (
-    !Number.isFinite(pickupLat) ||
-    !Number.isFinite(pickupLng) ||
-    pickupLat < -90 ||
-    pickupLat > 90 ||
-    pickupLng < -180 ||
-    pickupLng > 180
-  ) {
-    return res.status(400).json({
-      message: 'Valid pickup coordinates are required',
-    });
-  }
-
-  if (
-    !Number.isFinite(dropoffLat) ||
-    !Number.isFinite(dropoffLng) ||
-    dropoffLat < -90 ||
-    dropoffLat > 90 ||
-    dropoffLng < -180 ||
-    dropoffLng > 180
-  ) {
-    return res.status(400).json({
-      message: 'Valid destination coordinates are required',
-    });
-  }
-
-  if (!driverId) {
-    return res.status(400).json({
-      message: 'Please select a May taxi before booking',
-    });
-  }
-
-  // Sharing will be enabled after route compatibility is implemented.
-  if (bookingMode !== 'Solo') {
-    return res.status(400).json({
-      message: 'Sharing is not available yet. Please select Solo.',
-    });
-  }
-
-  if (pricingCategory !== 'Standard') {
-    return res.status(400).json({
-      message: 'Only Standard pricing is available at this stage.',
-    });
-  }
-
-  const fare = 30.00;
   const client = await pool.connect();
-
   try {
     await client.query('BEGIN');
-
-    // Lock the driver to prevent simultaneous conflicting bookings.
-    const driverResult = await client.query(
-      `SELECT
-         d.user_id,
-         d.is_available,
-         d.vetting_status,
-         d.vehicle_category,
-         d.current_lat,
-         d.current_lng
-       FROM drivers d
-       JOIN users u ON u.id = d.user_id
-       WHERE d.user_id = $1
-         AND u.role = 'Driver'
-       FOR UPDATE OF d`,
-      [driverId]
+    // Serialize requests by the same passenger, even when selecting different taxis.
+    await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [req.user.id]);
+    const { rows: passengerBookings } = await client.query(
+      `SELECT id FROM rides WHERE passenger_id = $1
+       AND status IN ('Pending', 'Active') LIMIT 1`, [req.user.id],
     );
-
-    if (!driverResult.rows.length) {
+    if (passengerBookings.length) {
       await client.query('ROLLBACK');
-      return res.status(404).json({
-        message: 'Selected taxi not found',
-      });
+      return res.status(409).json({ message: 'You already have an unfinished ride. Complete it before booking again.' });
+    }
+    // All reservations for one driver serialize through this row lock.
+    const { rows: drivers } = await client.query(
+      `SELECT d.user_id, d.is_available, d.vetting_status,
+              d.vehicle_category, d.seat_capacity, d.current_lat, d.current_lng
+       FROM drivers d JOIN users u ON u.id = d.user_id
+       WHERE d.user_id = $1 AND u.role = 'Driver' FOR UPDATE OF d`,
+      [driverId],
+    );
+    if (!drivers.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Selected taxi not found' });
     }
 
-    const driver = driverResult.rows[0];
-
-    if (
-      driver.vetting_status !== 'Approved' ||
-      driver.is_available !== true ||
-      driver.vehicle_category !== 'Standard' ||
-      driver.current_lat === null ||
-      driver.current_lng === null
-    ) {
+    const { rows: unfinished } = await client.query(
+      `SELECT id, status, booking_mode, shared_trip_id,
+              pickup_lat, pickup_lng, dropoff_lat, dropoff_lng
+       FROM rides WHERE driver_id = $1 AND status IN ('Pending', 'Active')`,
+      [driverId],
+    );
+    const driver = drivers[0];
+    const requested = { pickupLat, pickupLng, dropoffLat, dropoffLng };
+    const eligible = eligibleForBooking({ driver, unfinished, mode: bookingMode, requested });
+    // Also enforce the same pickup-radius rule as discovery, so direct API callers cannot bypass it.
+    const nearPickup = driver.current_lat != null && driver.current_lng != null &&
+      kmBetween(pickupLat, pickupLng, Number(driver.current_lat),
+        Number(driver.current_lng)) <= 10;
+    if (!eligible || !nearPickup) {
       await client.query('ROLLBACK');
       return res.status(409).json({
-        message: 'Selected taxi is no longer available',
+        message: 'This taxi is no longer available for the selected mode or route. Refresh available taxis.',
       });
     }
 
-    const unfinished = await client.query(
-      `SELECT id
-       FROM rides
-       WHERE driver_id = $1
-         AND status IN ('Pending', 'Active')
-       LIMIT 1`,
-      [driverId]
-    );
-
-    if (unfinished.rows.length) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({
-        message: 'This taxi already has an unfinished booking',
-      });
-    }
-
-    const code = generateCode();
-
-    const result = await client.query(
+    const groupId = bookingMode === 'Sharing'
+      ? (unfinished[0]?.shared_trip_id || randomUUID()) : null;
+    const fare = FARES[bookingMode];
+    const { rows } = await client.query(
       `INSERT INTO rides (
-         passenger_id,
-         driver_id,
-         pickup,
-         dropoff,
-         pickup_lat,
-         pickup_lng,
-         dropoff_lat,
-         dropoff_lng,
-         safe_arrival_code,
-         booking_mode,
-         pricing_category,
-         fare
-       )
-       VALUES (
-         $1, $2, $3, $4, $5, $6,
-         $7, $8, $9, $10, $11, $12
-       )
+         passenger_id, driver_id, pickup, dropoff, pickup_lat, pickup_lng,
+         dropoff_lat, dropoff_lng, safe_arrival_code,
+         booking_mode, pricing_category, fare, shared_trip_id
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        RETURNING *`,
-      [
-        req.user.id,
-        driverId,
-        pickup.trim(),
-        dropoff.trim(),
-        pickupLat,
-        pickupLng,
-        dropoffLat,
-        dropoffLng,
-        code,
-        'Solo',
-        'Standard',
-        fare,
-      ]
+      [req.user.id, driverId, pickup.trim(), dropoff.trim(), pickupLat, pickupLng,
+        dropoffLat, dropoffLng, generateCode(), bookingMode, 'Standard', fare, groupId],
     );
 
-    await client.query(
-      `UPDATE drivers
-       SET is_available = false
-       WHERE user_id = $1`,
-      [driverId]
-    );
+    // Sharing taxi stays bookable until all seats are reserved, or the driver starts a ride.
+    const remainingSeats = Number(driver.seat_capacity) - unfinished.length - 1;
+    if (bookingMode === 'Solo' || remainingSeats <= 0) {
+      await client.query('UPDATE drivers SET is_available = FALSE WHERE user_id = $1', [driverId]);
+    }
 
     await client.query('COMMIT');
-
     return res.status(201).json({
-      message: 'Solo ride booked successfully',
-      ride: result.rows[0],
-      driverAssigned: true,
-      bookingMode: 'Solo',
-      pricingCategory: 'Standard',
-      fare,
+      message: `${bookingMode} ride booked successfully`,
+      ride: rows[0], driverAssigned: true,
+      bookingMode, pricingCategory: 'Standard', fare,
+      seatsRemaining: bookingMode === 'Sharing' ? Math.max(0, remainingSeats) : 0,
     });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
-
     console.error('Booking failed:', err);
-
-    return res.status(500).json({
-      message: 'Booking failed',
-      error: err.message,
-    });
+    return res.status(500).json({ message: 'Booking failed' });
   } finally {
     client.release();
   }
@@ -452,64 +289,121 @@ const bookRide = async (req, res) => {
 // POST /api/rides/safe-arrival/:id
 const submitSafeArrival = async (req, res) => {
   const { id } = req.params;
-  const code = typeof req.body.code === 'string' ? req.body.code.trim().toUpperCase() : '';
-
+  const code = typeof req.body?.code === 'string' ? req.body.code.trim().toUpperCase() : '';
   if (!code) return res.status(400).json({ message: 'Safe-arrival code is required' });
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-
-    const { rows } = await client.query(
-      `SELECT * FROM rides
-       WHERE id = $1 AND passenger_id = $2
-       FOR UPDATE`,
-      [id, req.user.id]
+    // Lock driver before ride: consistent lock ordering with booking and startRide.
+    const { rows: owners } = await client.query(
+      'SELECT driver_id FROM rides WHERE id = $1 AND passenger_id = $2',
+      [id, req.user.id],
     );
-
-    if (!rows.length) {
+    if (!owners.length) {
       await client.query('ROLLBACK');
       return res.status(404).json({ message: 'Ride not found' });
     }
-
+    const driverId = owners[0].driver_id;
+    if (driverId) await client.query('SELECT user_id FROM drivers WHERE user_id = $1 FOR UPDATE', [driverId]);
+    const { rows } = await client.query(
+      'SELECT * FROM rides WHERE id = $1 AND passenger_id = $2 FOR UPDATE',
+      [id, req.user.id],
+    );
     const ride = rows[0];
-
-    if (ride.safe_arrived || ride.status === 'Completed') {
+    if (!ride || ride.safe_arrived || ride.status === 'Completed') {
       await client.query('ROLLBACK');
-      return res.status(409).json({ message: 'Safe arrival has already been confirmed' });
+      return res.status(409).json({ message: 'Safe arrival already confirmed' });
     }
-
     if (ride.status !== 'Active' || ride.driver_finished !== true) {
       await client.query('ROLLBACK');
-      return res.status(409).json({ message: 'Your driver must first confirm reaching the destination before you can confirm safe arrival.' });
+      return res.status(409).json({ message: 'Driver must confirm reaching your destination first' });
     }
-
     if ((ride.safe_arrival_code || '').toUpperCase() !== code) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ message: 'Incorrect safe arrival code' });
+      return res.status(400).json({ message: 'Incorrect Safe Arrival Code' });
     }
-
     await client.query(
-      `UPDATE rides
-       SET safe_arrived = true, status = 'Completed'
-       WHERE id = $1`,
-      [id]
+      `UPDATE rides SET safe_arrived = TRUE, status = 'Completed' WHERE id = $1`, [id],
     );
 
-    if (ride.driver_id) {
-      await client.query(
-       `UPDATE drivers SET is_available = true WHERE user_id = $1
- AND vetting_status = 'Approved'`,
-        [ride.driver_id]
+    let driverAvailable = false;
+    if (driverId) {
+      const { rows: remaining } = await client.query(
+        `SELECT COUNT(*)::INTEGER AS total FROM rides
+         WHERE driver_id = $1 AND status IN ('Pending', 'Active')`, [driverId],
       );
+      if (remaining[0].total === 0) {
+        const released = await client.query(
+          `UPDATE drivers SET is_available = TRUE
+           WHERE user_id = $1 AND vetting_status = 'Approved'
+           RETURNING user_id`, [driverId],
+        );
+        driverAvailable = released.rows.length > 0;
+      }
     }
-
     await client.query('COMMIT');
-    res.json({ message: 'Safe arrival confirmed', driverAvailable: !!ride.driver_id });
+    return res.json({
+      message: 'Safe arrival confirmed', driverAvailable,
+      ...(driverId && !driverAvailable ? { note: 'Driver remains reserved until all passengers finish' } : {}),
+    });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Safe arrival failed:', err);
-    res.status(500).json({ message: 'Safe arrival failed', error: err.message });
+    return res.status(500).json({ message: 'Safe arrival failed' });
+  } finally {
+    client.release();
+  }
+};
+
+// PATCH /api/rides/cancel/:id
+// Passengers may cancel Pending rides. Started rides cannot be cancelled here.
+const cancelRide = async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [req.user.id]);
+    const { rows: owners } = await client.query(
+      'SELECT driver_id FROM rides WHERE id = $1 AND passenger_id = $2',
+      [req.params.id, req.user.id],
+    );
+    if (!owners.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Ride not found' });
+    }
+    const driverId = owners[0].driver_id;
+    if (driverId) {
+      await client.query('SELECT user_id FROM drivers WHERE user_id = $1 FOR UPDATE', [driverId]);
+    }
+    const { rows } = await client.query(
+      'SELECT id, status FROM rides WHERE id = $1 AND passenger_id = $2 FOR UPDATE',
+      [req.params.id, req.user.id],
+    );
+    if (rows[0]?.status !== 'Pending') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ message: 'Only Pending rides can be cancelled' });
+    }
+    await client.query(`UPDATE rides SET status = 'Cancelled' WHERE id = $1`, [req.params.id]);
+    if (driverId) {
+      const { rows: remaining } = await client.query(
+        `SELECT status, booking_mode, shared_trip_id FROM rides
+         WHERE driver_id = $1 AND status IN ('Pending','Active')`, [driverId],
+      );
+      const canReopen = !remaining.length ||
+        remaining.every((r) => r.status === 'Pending' && r.booking_mode === 'Sharing' && r.shared_trip_id);
+      if (canReopen) {
+        await client.query(
+          `UPDATE drivers SET is_available = TRUE
+           WHERE user_id = $1 AND vetting_status = 'Approved'`, [driverId],
+        );
+      }
+    }
+    await client.query('COMMIT');
+    return res.json({ message: 'Ride cancelled successfully' });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Cancel ride error:', err);
+    return res.status(500).json({ message: 'Could not cancel ride' });
   } finally {
     client.release();
   }
@@ -561,6 +455,7 @@ module.exports = {
   getAvailableCabs,
   bookRide,
   submitSafeArrival,
+  cancelRide,
   myRides,
   emergency
 };

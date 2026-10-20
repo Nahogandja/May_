@@ -7,6 +7,11 @@ export const fetchAPI = async (
   options?: RequestInit
 ) => {
   const token = useAuthStore.getState().token;
+  console.log(
+  "MAY REQUEST:",
+  options?.method || "GET",
+  `${process.env.EXPO_PUBLIC_API_URL}${endpoint}`
+);
 
   try {
     const response = await fetch(

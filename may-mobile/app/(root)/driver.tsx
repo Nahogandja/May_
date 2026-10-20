@@ -31,6 +31,9 @@ type DriverRide = {
   id: string;
   passenger_name?: string | null;
   passenger_phone?: string | null;
+  booking_mode?: "Sharing" | "Solo";
+  shared_trip_id?: string | null;
+  fare?: number | string | null;
   pickup?: string | null;
   dropoff?: string | null;
   status?: string | null;
@@ -230,7 +233,7 @@ export default function DriverDashboard() {
                 isStart ? "Ride started" : "Waiting for passenger",
                 isStart
                   ? "Drive safely. The passenger will confirm safe arrival at the end."
-                  : "The passenger must confirm the Safe Arrival Code. You remain unavailable until that confirmation succeeds."
+                  : "Each passenger must confirm their own Safe Arrival Code. You remain unavailable until all passengers finish."
               );
             } catch (err) {
               Alert.alert("Ride update failed", err instanceof Error ? err.message : "Please try again.");
@@ -414,6 +417,17 @@ export default function DriverDashboard() {
                 <View className="rounded-full px-3 py-1" style={{ backgroundColor: `${statusColor(status)}18` }}>
                   <Text className="text-xs font-bold" style={{ color: statusColor(status) }}>{isWaitingForPassenger ? "Awaiting safe arrival" : status}</Text>
                 </View>
+              </View>
+
+              <View className="mb-3 flex-row items-center justify-between">
+                <Text className="font-bold text-[#176B3A]">
+                  {ride.booking_mode === "Sharing" ? "Sharing · N$15 per passenger" : "Solo · N$30"}
+                </Text>
+                {ride.shared_trip_id && (
+                  <Text className="text-xs text-[#64748B]">
+                    Group {ride.shared_trip_id.slice(0, 8)}
+                  </Text>
+                )}
               </View>
 
               {ride.emergency_flag && (
