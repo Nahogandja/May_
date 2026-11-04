@@ -9,7 +9,8 @@ const getAllDrivers = async (req, res) => {
          d.*,
          u.name,
          u.email,
-         u.phone
+         u.phone,
+         u.gender
        FROM drivers d
        JOIN users u ON d.user_id = u.id
        ORDER BY d.created_at DESC`
@@ -42,6 +43,32 @@ const approveDriver = async (req, res) => {
     : 'Rejected';
 
   try {
+    if (action === 'approve') {
+      const {rows: complete}=await pool.query(`SELECT d.license_number,d.vehicle_details,d.vehicle_color,
+        d.plate_number,d.headshot_url,d.certified_id_path,d.certified_licence_path,u.gender
+        FROM drivers d JOIN users u ON u.id=d.user_id WHERE d.id=$1`,[id]);
+      if (!complete.length) return res.status(404).json({message:'Driver not found'});
+      const p=complete[0];
+      const required = [
+        ['license_number', 'licence number'],
+        ['vehicle_details', 'vehicle description'],
+        ['vehicle_color', 'vehicle colour'],
+        ['plate_number', 'vehicle plate number'],
+        ['headshot_url', 'headshot'],
+        ['certified_id_path', 'certified ID'],
+        ['certified_licence_path', "certified driver's licence"],
+        ['gender', 'gender']
+      ];
+      const missingFields = required
+        .filter(([field]) => !String(p[field] ?? '').trim())
+        .map(([, label]) => label);
+      if (missingFields.length) {
+        return res.status(409).json({
+          message: `Cannot approve driver. Missing: ${missingFields.join(', ')}.`,
+          missingFields
+        });
+      }
+    }
     const { rows } = await pool.query(
       `UPDATE drivers
        SET
@@ -118,7 +145,7 @@ const getAllUsers = async (req, res) => {
          name,
          email,
          role,
-         phone,
+         phone, emergency_contact_name, emergency_contact_phone, gender,
          is_verified,
          created_at
        FROM users

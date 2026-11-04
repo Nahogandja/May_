@@ -1,16 +1,30 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
+const validPhone = (value) => /^\+?[0-9][0-9 +()\-]{6,20}$/.test(String(value || '').trim());
 
 const register = async (req, res) => {
-  const { name, email, password, phone, role } = req.body;
+  const { name, email, password, phone, role, emergencyContactName, emergencyContactPhone, gender } = req.body || {};
 
   if (!name || !email || !password) {
     return res.status(400).json({ message: 'Name, email, and password are required' });
   }
 
+  if (!validPhone(phone)) {
+    return res.status(400).json({ message: 'A valid phone number is required for both passengers and drivers' });
+  }
+
+  const contactName = String(emergencyContactName || '').trim();
+  const contactPhone = String(emergencyContactPhone || '').trim();
+  if (!contactName || !/^\+?[0-9][0-9 +()\-]{6,20}$/.test(contactPhone)) {
+    return res.status(400).json({ message: 'Emergency contact name and valid phone number are required' });
+  }
   const allowedRoles = ['Passenger', 'Driver'];
   const assignedRole = allowedRoles.includes(role) ? role : 'Passenger';
+
+  if (assignedRole === 'Driver' && !['Female', 'Male', 'Other', 'Prefer not to say'].includes(gender)) {
+    return res.status(400).json({ message: 'Please select your gender for the driver profile' });
+  }
 
   try {
     const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);
@@ -20,10 +34,10 @@ const register = async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 10);
     const { rows } = await pool.query(
-      `INSERT INTO users (name, email, password, phone, role)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO users (name, email, password, phone, role, emergency_contact_name, emergency_contact_phone, gender)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING id, name, email, role`,
-      [name, email.toLowerCase(), hashed, phone || null, assignedRole]
+      [name, email.toLowerCase(), hashed, String(phone).trim(), assignedRole, contactName, contactPhone, assignedRole === 'Driver' ? gender : null]
     );
 
     const user = rows[0];
@@ -104,4 +118,30 @@ const changePassword = async (req, res) => {
   }
 };
 
-module.exports = { register, login, changePassword };
+const updateEmergencyContact = async (req, res) => {
+  const name = String(req.body?.emergencyContactName || '').trim();
+  const phone = String(req.body?.emergencyContactPhone || '').trim();
+  if (!name || !/^\+?[0-9][0-9 +()\-]{6,20}$/.test(phone)) {
+    return res.status(400).json({ message: 'Provide a valid emergency contact name and phone number' });
+  }
+  try {
+    await pool.query(`UPDATE users SET emergency_contact_name=$1, emergency_contact_phone=$2 WHERE id=$3`, [name, phone, req.user.id]);
+    res.json({ message: 'Emergency contact saved' });
+  } catch (err) { res.status(500).json({ message: 'Could not save contact' }); }
+};
+const updateMyPhone = async (req, res) => {
+  const phone = String(req.body?.phone || '').trim();
+  if (!validPhone(phone)) return res.status(400).json({ message: 'Enter a valid phone number' });
+  try {
+    await pool.query('UPDATE users SET phone=$1 WHERE id=$2', [phone, req.user.id]);
+    return res.json({ message: 'Phone number saved', phone });
+  } catch (error) { return res.status(500).json({ message: 'Could not update phone number' }); }
+};
+
+const mySafetyProfile = async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT phone, emergency_contact_name, emergency_contact_phone, gender FROM users WHERE id=$1`, [req.user.id]);
+    res.json({ profile: rows[0] || {} });
+  } catch (_) { res.status(500).json({ message: 'Could not load safety profile' }); }
+};
+module.exports = { register, login, changePassword, updateEmergencyContact, mySafetyProfile, updateMyPhone };

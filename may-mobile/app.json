@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "may-mobile",
+    "name": "ES4WAC",
     "scheme": "may",
     "slug": "may-mobile",
     "version": "1.0.0",
@@ -18,7 +18,8 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.maymobile"
+      "package": "com.anonymous.maymobile",
+      "usesCleartextTraffic": true
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -29,7 +30,28 @@
       "expo-font",
       "expo-splash-screen",
       "expo-secure-store",
-      "@maplibre/maplibre-react-native"
-    ]
+      "@maplibre/maplibre-react-native",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      "expo-notifications"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c64c627b-3e98-4c55-ba14-c12aaf33193d"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/c64c627b-3e98-4c55-ba14-c12aaf33193d"
+    }
   }
 }

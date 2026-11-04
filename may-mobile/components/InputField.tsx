@@ -1,52 +1,33 @@
-import {
-  TextInput,
-  View,
-  Text,
-  Image,
-  KeyboardAvoidingView,
-  TouchableWithoutFeedback,
-  Keyboard,
-  Platform,
-} from "react-native";
-
+import React, { useState } from "react";
+import { Image, Text, TextInput, View } from "react-native";
 import { InputFieldProps } from "@/types/type";
+import { MAY } from "@/theme/may";
 
-const InputField = ({
-  label,
-  icon,
-  secureTextEntry = false,
-  labelStyle,
-  containerStyle,
-  inputStyle,
-  iconStyle,
-  className,
-  ...props
-}: InputFieldProps) => {
+/** Form field is deliberately not a KeyboardAvoidingView: the page owns keyboard avoidance. */
+export default function InputField({
+  label, icon, secureTextEntry = false, labelStyle, containerStyle,
+  inputStyle, iconStyle, className, style, ...props
+}: InputFieldProps) {
+  const [focused, setFocused] = useState(false);
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View className="my-2 w-full">
-          <Text className={`text-lg font-JakartaSemiBold mb-3 ${labelStyle}`}>
-            {label}
-          </Text>
-          <View
-            className={`flex flex-row justify-start items-center relative bg-neutral-100 rounded-full border border-neutral-100 focus:border-primary-500  ${containerStyle}`}
-          >
-            {icon && (
-              <Image source={icon} className={`w-6 h-6 ml-4 ${iconStyle}`} />
-            )}
-            <TextInput
-              className={`rounded-full p-4 font-JakartaSemiBold text-[15px] flex-1 ${inputStyle} text-left`}
-              secureTextEntry={secureTextEntry}
-              {...props}
-            />
-          </View>
-        </View>
-      </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
+    <View className={`mb-4 w-full ${className ?? ""}`}>
+      <Text className={`mb-2 text-sm font-JakartaSemiBold ${labelStyle ?? ""}`} style={{ color: MAY.ink }}>
+        {label}
+      </Text>
+      <View className={`min-h-14 flex-row items-center rounded-2xl border px-4 ${containerStyle ?? ""}`}
+        style={{ backgroundColor: MAY.white, borderColor: focused ? MAY.purple : MAY.border, borderWidth: focused ? 2 : 1 }}>
+        {icon ? <Image source={icon} className={`mr-3 h-5 w-5 ${iconStyle ?? ""}`} resizeMode="contain" /> : null}
+        <TextInput
+          {...props}
+          secureTextEntry={secureTextEntry}
+          placeholderTextColor={MAY.muted}
+          selectionColor={MAY.purple}
+          onFocus={(event) => { setFocused(true); props.onFocus?.(event); }}
+          onBlur={(event) => { setFocused(false); props.onBlur?.(event); }}
+          className={`min-w-0 flex-1 py-3 text-base font-JakartaMedium ${inputStyle ?? ""}`}
+          style={[{ color: MAY.ink, minHeight: 50 }, style]}
+        />
+      </View>
+    </View>
   );
-};
-
-export default InputField;
+}

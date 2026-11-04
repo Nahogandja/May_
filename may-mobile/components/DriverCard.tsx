@@ -51,7 +51,7 @@ const DriverCard = ({
       <View className="flex-1 mx-4">
         <Text
           className={`text-lg font-JakartaBold ${
-            isSelected ? "text-white" : "text-black"
+            isSelected ? "text-white" : "text-slate-800"
           }`}
         >
           {item.name}

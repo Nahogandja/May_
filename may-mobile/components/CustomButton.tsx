@@ -7,26 +7,26 @@ const getBgVariantStyle = (variant: ButtonProps["bgVariant"]) => {
     case "secondary":
       return "bg-gray-500";
     case "danger":
-      return "bg-red-500";
+      return "bg-amber-500";
     case "success":
-      return "bg-green-500";
+      return "bg-indigo-500";
     case "outline":
       return "bg-transparent border-neutral-300 border-[0.5px]";
     default:
-      return "bg-[#0286FF]";
+      return "bg-[#5969C7]";
   }
 };
 
 const getTextVariantStyle = (variant: ButtonProps["textVariant"]) => {
   switch (variant) {
     case "primary":
-      return "text-black";
+      return "text-slate-800";
     case "secondary":
       return "text-gray-100";
     case "danger":
-      return "text-red-100";
+      return "text-amber-100";
     case "success":
-      return "text-green-100";
+      return "text-indigo-100";
     default:
       return "text-white";
   }

@@ -43,6 +43,8 @@ const LocationTextInput = ({
   const [query, setQuery] = useState(initialLocation ?? "");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
+  // Keep the visible search field in sync with saved/frequent destination selections.
+  useEffect(()=>{setQuery(initialLocation ?? "");},[initialLocation]);
 
   useEffect(() => {
     const searchLocations = async () => {
@@ -64,7 +66,7 @@ const LocationTextInput = ({
         const response = await fetch(url, {
           headers: {
             Accept: "application/json",
-            "User-Agent": "MayMobile/1.0",
+            "User-Agent": "ES4WAC/1.0",
           },
         });
 
@@ -104,11 +106,11 @@ const LocationTextInput = ({
 
   return (
     <View
-      className={`rounded-xl ${containerStyle ?? ""}`}
+      className={`rounded-2xl border border-may-lavender ${containerStyle ?? ""}`}
       style={{ zIndex: 100 }}
     >
       <View
-        className="flex-row items-center rounded-xl px-3"
+        className="flex-row items-center rounded-2xl px-3"
         style={{
           backgroundColor: textInputBackgroundColor ?? "white",
         }}
@@ -123,7 +125,8 @@ const LocationTextInput = ({
           value={query}
           onChangeText={setQuery}
           placeholder="Where do you want to go?"
-          placeholderTextColor="gray"
+          placeholderTextColor="#626A81"
+          selectionColor="#5969C7"
           className="flex-1 ml-3"
           style={{
             fontSize: 16,
@@ -137,11 +140,11 @@ const LocationTextInput = ({
 
       {results.length > 0 && (
         <View
-          className="bg-white rounded-xl mt-1"
+          className="bg-white rounded-xl mt-1 border border-may-lavender"
           style={{
             elevation: 5,
-            shadowColor: "#000",
-            shadowOpacity: 0.15,
+            shadowColor: "#303A7C",
+            shadowOpacity: 0.08,
             shadowRadius: 5,
           }}
         >

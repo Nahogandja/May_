@@ -84,7 +84,7 @@ const SignIn = () => {
               className="z-0 h-[250px] w-full"
               resizeMode="cover"
             />
-            <Text className="absolute bottom-5 left-5 text-2xl font-JakartaSemiBold text-black">
+            <Text className="absolute bottom-5 left-5 text-2xl font-JakartaSemiBold text-slate-800">
               Welcome
             </Text>
           </View>

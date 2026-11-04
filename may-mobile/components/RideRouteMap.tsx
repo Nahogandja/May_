@@ -1,0 +1,71 @@
+import React,{useEffect,useMemo,useState} from "react";
+import {Text,View} from "react-native";
+import {Map,Camera,Marker,GeoJSONSource,Layer} from "@maplibre/maplibre-react-native";
+import {fetchAPI} from "@/lib/fetch";
+import {MAY} from "@/theme/may";
+export type MapRide={id:string;pickup_lat?:number|null;pickup_lng?:number|null;
+ dropoff_lat?:number|null;dropoff_lng?:number|null;dropoff?:string|null;passenger_name?:string|null;status?:string|null};
+type Props={rideId?:string;pickupLat?:number;pickupLng?:number;dropoffLat?:number;dropoffLng?:number;
+ driverLat?:number|null;driverLng?:number|null;rides?:MapRide[]};
+type RouteData={coordinates:number[][];steps?:{instruction:string;distanceMeters:number}[];source?:string};
+const valid=(n:any)=>n!==null&&n!==undefined&&n!==""&&Number.isFinite(Number(n));
+export default function RideRouteMap({rideId,pickupLat,pickupLng,dropoffLat,dropoffLng,driverLat,driverLng,rides}:Props){
+ const single: MapRide[] =rideId && [pickupLat,pickupLng,dropoffLat,dropoffLng].every(valid)?
+  [{id:rideId,pickup_lat:pickupLat,pickup_lng:pickupLng,dropoff_lat:dropoffLat,dropoff_lng:dropoffLng}]:[];
+ const entries=(rides?.length?rides:single).filter(r=>valid(r.pickup_lat)&&valid(r.pickup_lng)&&valid(r.dropoff_lat)&&valid(r.dropoff_lng));
+ const ids=entries.map(r=>r.id).join(",");
+ const [routeData,setRouteData]=useState<Record<string,RouteData>>({});
+ useEffect(()=>{let current=true;
+   if(!ids){setRouteData({});return ()=>{current=false;};}
+   Promise.all(entries.map(r=>fetchAPI(`/api/rides/route/${r.id}`).then(x=>[r.id,x] as const)
+      .catch(()=>[r.id,null] as const))).then(rows=>{
+     if(current)setRouteData(Object.fromEntries(rows.filter(x=>x[1])));
+   });return ()=>{current=false;};
+ },[ids]);
+ const coords=entries.map(r=>{
+   const raw=routeData[r.id]?.coordinates;
+   return raw?.length>=2?raw:[[Number(r.pickup_lng),Number(r.pickup_lat)],[Number(r.dropoff_lng),Number(r.dropoff_lat)]];
+ });
+ const geojson=useMemo(()=>({type:"FeatureCollection",features:coords.filter(line=>line.length>1)
+   .map((line,i)=>({type:"Feature",properties:{order:i+1},geometry:{type:"LineString",coordinates:line}}))}),
+   [JSON.stringify(coords)]);
+ const center:[number,number]=[valid(driverLng)?Number(driverLng):Number(entries[0]?.pickup_lng??17.0658),
+  valid(driverLat)?Number(driverLat):Number(entries[0]?.pickup_lat??-22.5609)];
+ const steps=entries.length?routeData[entries[0].id]?.steps||[]:[];
+ return <View style={{backgroundColor:"white",borderWidth:1,borderColor:MAY.border,
+    borderRadius:16,overflow:"hidden",marginBottom:16}}>
+   <View style={{height:305}}>
+     <Map mapStyle="https://tiles.openfreemap.org/styles/liberty" androidView="texture" style={{flex:1}}>
+       <Camera key={ids||"driver-map"} initialViewState={{center,zoom:12}}/>
+       {coords.length>0&&<GeoJSONSource id="es4wac-routes" data={geojson as any}>
+         <Layer id="es4wac-lines" type="line" paint={{"line-color":MAY.purple,"line-width":5,"line-opacity":0.88}}/>
+       </GeoJSONSource>}
+       {entries.map((r,i)=><React.Fragment key={r.id}>
+         <Marker id={`pickup-${i}`} lngLat={[Number(r.pickup_lng),Number(r.pickup_lat)]}>
+           <View style={{borderRadius:14,backgroundColor:"white",paddingHorizontal:7,paddingVertical:5}}>
+             <Text style={{color:MAY.navy,fontWeight:"800",fontSize:12}}>P{i+1}</Text></View>
+         </Marker>
+         <Marker id={`destination-${i}`} lngLat={[Number(r.dropoff_lng),Number(r.dropoff_lat)]}>
+           <View style={{borderRadius:14,backgroundColor:MAY.lavender,paddingHorizontal:7,paddingVertical:5}}>
+             <Text style={{color:MAY.navy,fontWeight:"800",fontSize:12}}>D{i+1}</Text></View>
+         </Marker>
+       </React.Fragment>)}
+       {valid(driverLat)&&valid(driverLng)&&<Marker id="current-driver" lngLat={[Number(driverLng),Number(driverLat)]}>
+         <View style={{backgroundColor:MAY.navy,borderRadius:20,padding:8}}><Text style={{fontSize:18}}>🚕</Text></View>
+       </Marker>}
+     </Map>
+   </View>
+   <View style={{padding:14}}>
+     <Text style={{fontSize:15,fontWeight:"800",color:MAY.navy}}>
+       {entries.length?`${entries.length} current ride${entries.length===1?"":"s"} mapped`:"Driver map"}</Text>
+     <Text style={{color:MAY.muted,fontSize:12,marginTop:4}}>
+       {entries.length?"P = pickup · D = destination. Straight lines may appear if road routing is unavailable.":"Your current position and assigned trips appear here. Location may be approximate."}</Text>
+     {entries.map((r,i)=><Text numberOfLines={1} key={r.id} style={{color:MAY.ink,fontSize:12,marginTop:8}}>
+        {i+1}. {r.passenger_name||"Passenger"} → {r.dropoff||"Destination"}</Text>)}
+     {steps.slice(0,5).map((step,i)=><Text key={i} style={{fontSize:12,color:MAY.muted,marginTop:5}}>
+       {i+1}. {step.instruction}</Text>)}
+     <Text style={{fontSize:11,color:MAY.muted,marginTop:9}}>
+       Follow road signs and traffic laws. This is foreground guidance, not turn-by-turn background navigation.</Text>
+   </View>
+ </View>;
+}

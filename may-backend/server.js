@@ -76,7 +76,12 @@ io.on('connection', (socket) => {
   });
 });
 
+const { startAutomaticCodeRotation } = require('./src/services/automaticCodes');
+const { startRideReminders } = require('./src/services/rideReminders');
+
 const PORT = process.env.PORT || 5000;
 httpServer.listen(PORT, () => {
-  console.log(`MAY API running on port ${PORT} | DB: PostgreSQL (local)`);
+  console.log(`ES4WOMEN&CHILDREN API running on port ${PORT} | DB: PostgreSQL (local)`);
+  startAutomaticCodeRotation();
+  startRideReminders();
 });

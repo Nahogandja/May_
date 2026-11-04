@@ -1,27 +1,34 @@
-import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
+import BottomSheet, { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { router } from "expo-router";
 import React, { useRef } from "react";
 import { Image, Text, TouchableOpacity, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import Map from "@/components/Map";
+import SOSButton from "@/components/SOSButton";
 import { icons } from "@/constants";
 
 const RideLayout = ({
   title,
   snapPoints,
   children,
+  sosRideId,
+  sosFallbackLatitude,
+  sosFallbackLongitude,
 }: {
   title: string;
   snapPoints?: string[];
   children: React.ReactNode;
+  sosRideId?: string;
+  sosFallbackLatitude?: number | null;
+  sosFallbackLongitude?: number | null;
 }) => {
   const bottomSheetRef = useRef<BottomSheet>(null);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
-        <View style={{ flex: 1, backgroundColor: "#3B82F6" }}>
+        <View style={{ flex: 1, backgroundColor: "#657BD8" }}>
           <View
             style={{
               position: "absolute",
@@ -63,7 +70,7 @@ const RideLayout = ({
                 fontSize: 20,
                 fontWeight: "600",
                 marginLeft: 20,
-                color: "#111827",
+                color: "#333B58",
               }}
               numberOfLines={1}
             >
@@ -85,16 +92,22 @@ const RideLayout = ({
           keyboardBlurBehavior="restore"
           android_keyboardInputMode="adjustResize"
         >
-          <BottomSheetView
-            style={{
-              flex: 1,
-              paddingHorizontal: 20,
-              paddingTop: 16,
-              paddingBottom: 24,
-            }}
+          <BottomSheetScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48 }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
+            {sosRideId ? (
+              <SOSButton
+                rideId={sosRideId}
+                fallbackLatitude={sosFallbackLatitude}
+                fallbackLongitude={sosFallbackLongitude}
+                compact
+              />
+            ) : null}
             {children}
-          </BottomSheetView>
+          </BottomSheetScrollView>
         </BottomSheet>
       </View>
     </GestureHandlerRootView>

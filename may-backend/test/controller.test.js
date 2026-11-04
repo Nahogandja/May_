@@ -71,6 +71,7 @@ test('booking compatible Sharing ride charges N$15 and leaves free seats', async
           if (sql.includes('FROM drivers d JOIN users')) return { rows: [driver] };
           if (sql.includes('FROM rides WHERE driver_id')) return { rows: [priorRide] };
           if (sql.includes('INSERT INTO rides')) return { rows: [{ id: RIDE, safe_arrival_code: 'CODE12' }] };
+          if (sql.includes('SELECT balance_cents FROM wallets')) return { rows: [{ balance_cents: '10000' }] };
           return { rows: [] };
         },
         release() {},
@@ -89,6 +90,8 @@ test('booking compatible Sharing ride charges N$15 and leaves free seats', async
   const inserted = queries.find((q) => q.sql.includes('INSERT INTO rides'));
   assert.equal(inserted.params[11], 15);
   assert.equal(inserted.params[12], RIDE);
+  assert.equal(queries.some((q) => q.sql.includes("'ride_payment'") && q.params?.[2] === -1500), true);
+  assert.equal(response.body.payment.amountCents, 1500);
   assert.equal(queries.some((q) => q.sql.includes('SET is_available = FALSE')), false);
 });
 
@@ -183,4 +186,80 @@ test('cancelling a Pending ride releases an unoccupied taxi', async () => {
   await controller.cancelRide({ params: { id: RIDE }, user: { id: PASSENGER } }, response);
   assert.equal(response.code, 200);
   assert.equal(released, true);
+});
+
+test('booking without enough MAY Wallet credits rolls back reservation', async () => {
+  const sqls = [];
+  const pool = { async connect() { return {
+    async query(sql) {
+      sqls.push(sql);
+      if (sql.includes('FROM rides WHERE passenger_id')) return { rows: [] };
+      if (sql.includes('FROM drivers d JOIN users')) return { rows: [driver] };
+      if (sql.includes('FROM rides WHERE driver_id')) return { rows: [] };
+      if (sql.includes('INSERT INTO rides')) return { rows: [{ id: RIDE, safe_arrival_code: 'CODE12' }] };
+      if (sql.includes('SELECT balance_cents FROM wallets')) return { rows: [{ balance_cents: '0' }] };
+      return { rows: [] };
+    }, release() {},
+  }; } };
+  const controller = controllerWithPool(pool);
+  const response = res();
+  await controller.bookRide({ body: {
+    pickup: 'Pickup', dropoff: 'Dropoff', ...requestPoint,
+    driverId: DRIVER, bookingMode: 'Solo', pricingCategory: 'Standard',
+  }, user: { id: PASSENGER } }, response);
+  assert.equal(response.code, 409);
+  assert.match(response.body.message, /wallet.*top up/i);
+  assert.equal(sqls.includes('ROLLBACK'), true);
+  assert.equal(sqls.includes('COMMIT'), false);
+});
+
+test('verified paid ride credits driver wallet once inside Safe Arrival transaction', async () => {
+  const sqls = [];
+  const pool = { async connect() { return {
+    async query(sql, params) {
+      sqls.push({ sql, params });
+      if (sql.startsWith('SELECT driver_id FROM rides')) return { rows: [{ driver_id: DRIVER }] };
+      if (sql.startsWith('SELECT * FROM rides')) return { rows: [{
+        id: RIDE, driver_id: DRIVER, status: 'Active', safe_arrived: false,
+        driver_finished: true, safe_arrival_code: 'CODE12',
+      }] };
+      if (sql.includes("entry_type = 'ride_payment'")) return { rows: [{ amount_cents: '-3000' }] };
+      if (sql.includes('SELECT balance_cents FROM wallets')) return { rows: [{ balance_cents: '0' }] };
+      if (sql.includes('ON CONFLICT DO NOTHING RETURNING id')) return { rows: [{ id: 'earning' }] };
+      if (sql.includes('SELECT COUNT(*)')) return { rows: [{ total: 0 }] };
+      if (sql.includes('UPDATE drivers')) return { rows: [{ user_id: DRIVER }] };
+      return { rows: [] };
+    }, release() {},
+  }; } };
+  const response = res();
+  const controller = controllerWithPool(pool);
+  await controller.submitSafeArrival({ params: { id: RIDE }, user: { id: PASSENGER },
+    body: { code: 'CODE12' } }, response);
+  assert.equal(response.code, 200);
+  assert.equal(response.body.driverEarningCents, 3000);
+  assert.ok(sqls.some((q) => q.sql.includes("'driver_earning'") && q.params[2] === 3000));
+  assert.ok(sqls.some((q) => q.sql === 'COMMIT'));
+});
+
+test('cancelling paid Pending ride refunds demo wallet in same transaction', async () => {
+  const sqls = [];
+  const pool = { async connect() { return {
+    async query(sql, params) {
+      sqls.push({ sql, params });
+      if (sql.startsWith('SELECT driver_id FROM rides')) return { rows: [{ driver_id: DRIVER }] };
+      if (sql.startsWith('SELECT id, status FROM rides')) return { rows: [{ id: RIDE, status: 'Pending' }] };
+      if (sql.includes("entry_type = 'ride_payment'")) return { rows: [{ amount_cents: '-1500' }] };
+      if (sql.includes('SELECT balance_cents FROM wallets')) return { rows: [{ balance_cents: '8500' }] };
+      if (sql.includes('ON CONFLICT DO NOTHING RETURNING id')) return { rows: [{ id: 'refund' }] };
+      if (sql.includes('SELECT status, booking_mode')) return { rows: [] };
+      return { rows: [] };
+    }, release() {},
+  }; } };
+  const controller = controllerWithPool(pool);
+  const response = res();
+  await controller.cancelRide({ params: { id: RIDE }, user: { id: PASSENGER } }, response);
+  assert.equal(response.code, 200);
+  assert.equal(response.body.refundedCents, 1500);
+  assert.ok(sqls.some((q) => q.sql.includes("'ride_refund'") && q.params[2] === 1500));
+  assert.ok(sqls.some((q) => q.sql === 'COMMIT'));
 });

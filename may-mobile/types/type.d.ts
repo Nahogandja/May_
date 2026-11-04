@@ -45,6 +45,8 @@ declare interface Ride {
   driver_id: string | null;
   pickup: string;
   dropoff: string;
+  pickup_lat?: number | null;
+  pickup_lng?: number | null;
   safe_arrival_code: string;
   safe_arrived: boolean;
   driver_finished?: boolean;
@@ -56,6 +58,14 @@ declare interface Ride {
   pricing_category?: string;
   fare?: number | string | null;
   shared_trip_id?: string | null;
+  rating?: number | null;
+  safety_status?: string | null;
+  safety_alert_id?: string | null;
+  safety_alert_reason?: string | null;
+  driver_gender?: string | null;
+  vehicle_color?: string | null;
+  plate_number?: string | null;
+  headshot_url?: string | null;
 }
 
 declare interface ButtonProps extends TouchableOpacityProps {

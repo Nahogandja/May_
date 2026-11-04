@@ -13,7 +13,7 @@ const bcrypt = require('bcrypt');
 const pool = require('./db');
 
 // ── Edit these before running ──────────────────────────────
-const ADMIN_NAME     = 'MAY Admin';
+const ADMIN_NAME     = 'ES4WAC Admin';
 const ADMIN_EMAIL    = 'admin@mayapp.com';
 const ADMIN_PASSWORD = 'ChangeMe123!';   // change this, then change it again after first login
 const ADMIN_PHONE    = null;

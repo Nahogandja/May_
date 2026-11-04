@@ -21,6 +21,7 @@ import { icons, images } from "@/constants";
 import { fetchAPI, useFetch } from "@/lib/fetch";
 import { useLocationStore } from "@/store";
 import { useAuthStore } from "@/store/auth";
+import { useUpcomingRideReminder } from "@/hooks/useUpcomingRideReminder";
 import { Ride } from "@/types/type";
 
 type NearbyDriver = {
@@ -37,6 +38,7 @@ type NearbyDriver = {
 const Home = () => {
   const user = useAuthStore((state) => state.user);
   const clearAuth = useAuthStore((state) => state.clearAuth);
+  useUpcomingRideReminder(user?.role === "Passenger" ? "Passenger" : undefined);
 
   const {
     userLatitude,
@@ -58,7 +60,7 @@ const Home = () => {
 
   const handleSignOut = () => {
     clearAuth();
-    router.replace("/(auth)/sign-in");
+    router.replace("/(auth)/welcome");
   };
 
   // Get the passenger's current location.
@@ -200,6 +202,13 @@ const Home = () => {
     }
   };
 
+  // Keep the passenger's displayed code current when the backend rotates it
+  // five minutes after arrival. Existing route/tab behavior is unchanged.
+  useEffect(() => {
+    const timer = setInterval(() => { void refetchRides(); }, 15_000);
+    return () => clearInterval(timer);
+  }, [refetchRides]);
+
   const taxiCount = nearbyDrivers.length;
 
   const activeRides = (recentRides ?? [])
@@ -210,7 +219,7 @@ const Home = () => {
     .slice(0, 5);
 
   return (
-    <SafeAreaView className="bg-general-500 flex-1">
+    <SafeAreaView className="bg-may-page flex-1">
       <FlatList
         data={activeRides}
         renderItem={({ item }) => <RideCard ride={item} onVerified={refetchRides} />}
@@ -219,7 +228,7 @@ const Home = () => {
         }
         className="px-5"
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingBottom: 100 }}
+        contentContainerStyle={{ paddingBottom: 128 }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -227,7 +236,7 @@ const Home = () => {
           />
         }
         ListEmptyComponent={() => (
-          <View className="flex flex-col items-center justify-center py-10">
+          <View className="flex flex-col items-center justify-center py-5">
             {!loading ? (
               <>
                 <Image
@@ -236,11 +245,11 @@ const Home = () => {
                   resizeMode="contain"
                 />
                 <Text className="text-sm">
-                  No recent rides found
+                  No active rides right now
                 </Text>
               </>
             ) : (
-              <ActivityIndicator size="small" color="#000" />
+              <ActivityIndicator size="small" color="#5969C7" />
             )}
           </View>
         )}
@@ -248,13 +257,13 @@ const Home = () => {
           <>
             {/* Welcome and sign-out */}
             <View className="flex flex-row items-center justify-between my-5">
-              <Text className="text-2xl font-JakartaExtraBold">
-                Welcome {user?.name ?? "Passenger"}
+              <Text className="flex-1 pr-3 text-2xl text-may-navy font-JakartaExtraBold">
+                Hello, {user?.name ?? "Passenger"}
               </Text>
 
               <TouchableOpacity
                 onPress={handleSignOut}
-                className="justify-center items-center w-10 h-10 rounded-full bg-white"
+                className="justify-center items-center w-11 h-11 rounded-2xl border border-may-lavender bg-white"
               >
                 <Image
                   source={icons.out}
@@ -270,16 +279,59 @@ const Home = () => {
               handlePress={handleDestinationPress}
             />
 
+            {/* Safety actions moved from the welcome page. Each opens the active ride's
+                controls, where arrival confirmation, SOS and sharing are available. */}
+            <View style={{ marginTop: 18, flexDirection: 'row', gap: 9 }}>
+              {[
+                { glyph: '✓', title: 'Safe Arrival', detail: 'Verify trip' },
+                { glyph: '!', title: 'SOS Alert', detail: 'Get help' },
+                { glyph: '↗', title: 'Live Sharing', detail: 'Share trip' },
+              ].map(action => <TouchableOpacity key={action.title}
+                accessibilityRole="button" accessibilityLabel={action.title}
+                onPress={() => {
+                  if (!activeRides.length) {
+                    Alert.alert('No active ride', 'Book a ride to use trip-specific safety tools.');
+                  } else {
+                    router.push('/(root)/(tabs)/rides');
+                  }
+                }}
+                style={{ flex: 1, backgroundColor: '#FFFFFF', borderRadius: 15,
+                  paddingVertical: 13, paddingHorizontal: 4, alignItems: 'center',
+                  borderWidth: 1, borderColor: '#DFE3F3' }}>
+                  <View style={{ width: 36, height: 36, borderRadius: 18,
+                    backgroundColor: '#EDF0FF', justifyContent: 'center', alignItems: 'center' }}>
+                    <Text style={{ color: '#303A7C', fontWeight: '900', fontSize: 22 }}>{action.glyph}</Text>
+                  </View>
+                  <Text style={{ color: '#303A7C', fontSize: 11,
+                    fontWeight: '900', marginTop: 7, textAlign: 'center' }}>{action.title}</Text>
+                  <Text style={{ color: '#626A81', fontSize: 10,
+                    marginTop: 2 }}>{action.detail}</Text>
+                </TouchableOpacity>)}
+            </View>
+
+                        {/* Offline booking available on the passenger landing page. */}
+            <TouchableOpacity onPress={() => router.push("/offline-booking")}
+              accessibilityRole="button" accessibilityLabel="Offline booking: call or SMS"
+              style={{ marginTop: 12, backgroundColor: "#EDF0FF", padding: 15, borderRadius: 16,
+                borderWidth: 1, borderColor: "#DFE3F3" }}>
+              <Text style={{ color: "#303A7C", fontWeight: "800", fontSize: 15 }}>
+                No internet? Book by call or SMS  →
+              </Text>
+              <Text style={{ color: "#626A81", marginTop: 4, fontSize: 12 }}>
+                Talk directly to our operator without mobile data.
+              </Text>
+            </TouchableOpacity>
+
             {/* Current location */}
-            <Text className="text-xl font-JakartaBold mt-5 mb-3">
+            <Text className="text-xl font-JakartaBold text-may-navy mt-5 mb-3">
               Your current location
             </Text>
 
             <View
               style={{
-                height: 220,
+                height: 230,
                 width: "100%",
-                borderRadius: 16,
+                borderRadius: 22,
                 overflow: "hidden",
               }}
               className="bg-transparent"
@@ -288,7 +340,7 @@ const Home = () => {
                 <View className="flex-1 items-center justify-center">
                   <ActivityIndicator
                     size="large"
-                    color="#0286FF"
+                    color="#5969C7"
                   />
                   <Text className="mt-2 text-sm text-gray-500">
                     Getting location...
@@ -299,8 +351,8 @@ const Home = () => {
               )}
             </View>
 
-            {/* Available May taxis */}
-            <View className="mt-5 bg-white rounded-2xl p-4 shadow-sm">
+            {/* Available ES4WAC taxis */}
+            <View className="mt-5 bg-white rounded-2xl border border-may-lavender p-4">
               <View className="flex-row items-center justify-between">
                 <View className="flex-row items-center">
                   <Text className="text-2xl mr-2">
@@ -309,7 +361,7 @@ const Home = () => {
 
                   <View>
                     <Text className="text-lg font-JakartaBold">
-                      May taxis nearby
+                      ES4WAC taxis nearby
                     </Text>
 
                     {driversLoading ? (
@@ -331,7 +383,7 @@ const Home = () => {
                 {driversLoading ? (
                   <ActivityIndicator
                     size="small"
-                    color="#0286FF"
+                    color="#5969C7"
                   />
                 ) : (
                   <View className="bg-general-500 rounded-full px-3 py-2">
@@ -347,17 +399,17 @@ const Home = () => {
                   onPress={() =>
                     router.push("/(root)/find-ride")
                   }
-                  className="mt-4 bg-general-600 rounded-xl py-3 items-center"
+                  className="mt-4 bg-primary-500 rounded-2xl min-h-14 py-3 items-center justify-center"
                 >
                   <Text className="font-JakartaBold text-white">
-                    Book a May taxi
+                    Book a safe ES4WAC ride
                   </Text>
                 </TouchableOpacity>
               )}
             </View>
 
             {/* Recent rides */}
-            <Text className="text-xl font-JakartaBold mt-5 mb-3">
+            <Text className="text-xl font-JakartaBold text-may-navy mt-5 mb-3">
               Recent Rides
             </Text>
 
@@ -366,7 +418,7 @@ const Home = () => {
               onPress={() =>
                 router.push("/(root)/(tabs)/rides")
               }
-              className="mt-2 mb-4 bg-white rounded-2xl p-4 shadow-sm flex-row items-center justify-between"
+              className="mt-2 mb-4 bg-white border border-may-lavender rounded-2xl p-4 shadow-sm flex-row items-center justify-between"
             >
               <View>
                 <Text className="text-sm text-gray-500 mt-1">

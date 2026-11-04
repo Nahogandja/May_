@@ -8,11 +8,13 @@ import {
 
 import {
   Camera,
+  GeoJSONSource,
+  Layer,
   Map,
   Marker,
 } from "@maplibre/maplibre-react-native";
 
-import { useFetch } from "@/lib/fetch";
+import { useFetch, fetchAPI } from "@/lib/fetch";
 import { calculateDriverTimes } from "@/lib/map";
 import { useDriverStore, useLocationStore } from "@/store";
 import { Driver, MarkerData } from "@/types/type";
@@ -28,6 +30,18 @@ const MapComponent = () => {
   } = useLocationStore();
 
   const { selectedDriver, setDrivers } = useDriverStore();
+  const [routeLine,setRouteLine]=useState<number[][]|null>(null);
+  const [routeRoadVerified,setRouteRoadVerified]=useState(false);
+  useEffect(()=>{
+    if ([userLatitude,userLongitude,destinationLatitude,destinationLongitude].some(v=>typeof v!=="number")) {
+      setRouteLine(null);setRouteRoadVerified(false);return;
+    }
+    let active=true;
+    const endpoint=`/api/rides/route-preview?startLat=${userLatitude}&startLng=${userLongitude}&endLat=${destinationLatitude}&endLng=${destinationLongitude}`;
+    fetchAPI(endpoint).then(data=>{if(active){setRouteLine(data.coordinates);setRouteRoadVerified(data.source==='osrm');}})
+      .catch(()=>{if(active){setRouteLine(null);setRouteRoadVerified(false);}});
+    return ()=>{active=false;};
+  },[userLatitude,userLongitude,destinationLatitude,destinationLongitude]);
 
   /*
    * Get nearby drivers from the May backend.
@@ -178,6 +192,11 @@ const MapComponent = () => {
           }}
         />
 
+        {routeLine && <GeoJSONSource id="may-passenger-preview" data={{type:"FeatureCollection",features:[{
+          type:"Feature",properties:{},geometry:{type:"LineString",coordinates:routeLine}
+        }]} as any}>
+          <Layer type="line" id="may-passenger-direction" paint={{"line-color":routeRoadVerified?"#5969C7":"#B36A33","line-width":5,"line-opacity":0.86}}/>
+        </GeoJSONSource>}
         {/* Passenger location */}
         <Marker
           id="passenger"
@@ -234,6 +253,9 @@ const MapComponent = () => {
         ))}
       </Map>
 
+      {routeLine && <View style={{position:"absolute",bottom:12,left:12,backgroundColor:"white",padding:7,borderRadius:9}}>
+        <Text style={{fontSize:11,color:"#333B58",fontWeight:"700"}}>{routeRoadVerified?"Purple line: driving route":"Coral line: approximate direction"}</Text>
+      </View>}
       {/* Loading indicator */}
       {loading && (
         <View style={styles.loadingOverlay}>
@@ -258,7 +280,7 @@ const styles = StyleSheet.create({
     flex: 1,
     width: "100%",
     height: "100%",
-    borderRadius: 16,
+    borderRadius: 20,
     overflow: "hidden",
   },
 
@@ -294,7 +316,7 @@ const styles = StyleSheet.create({
     width: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: "#0286FF",
+    backgroundColor: "#5969C7",
   },
 
   /*
@@ -312,7 +334,7 @@ const styles = StyleSheet.create({
 
   selectedDriverMarker: {
     borderWidth: 3,
-    borderColor: "#0286FF",
+    borderColor: "#5969C7",
   },
 
   driverText: {
@@ -354,11 +376,11 @@ const styles = StyleSheet.create({
     right: 10,
     backgroundColor: "rgba(255,255,255,0.95)",
     padding: 8,
-    borderRadius: 8,
+    borderRadius: 12,
   },
 
   errorText: {
-    color: "red",
+    color: "#B36A33",
     fontSize: 12,
   },
 });
