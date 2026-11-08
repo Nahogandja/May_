@@ -1,6 +1,8 @@
 const pool = require('../config/db');
 const { sendEmergencySMS } = require('../services/sms');
 const { makeCode } = require('../services/automaticCodes');
+const { refundCancelledRide } = require('../services/wallet');
+const { syncDriverAvailability } = require('../services/driverAvailability');
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const allowedSources = new Set(['last_known', 'pickup', 'unavailable']);
@@ -221,44 +223,407 @@ const listEmergencyAlerts = async (_req, res) => {
 
 const updateEmergencyAlert = async (req, res) => {
   const { id } = req.params;
-  const { action, note } = req.body || {};
-  if (!UUID.test(id)) return res.status(400).json({ message: 'Invalid incident ID' });
-  if (action !== 'acknowledge' && action !== 'resolve') {
-    return res.status(400).json({ message: 'Action must be acknowledge or resolve' });
-  }
-  if (action === 'resolve' && (typeof note !== 'string' || note.trim().length < 3 || note.length > 500)) {
-    return res.status(400).json({ message: 'Please provide a short resolution note (3–500 characters)' });
-  }
-  try {
-    const { rows } = await pool.query(
-      action === 'acknowledge'
-        ? `UPDATE emergency_alerts SET status = 'Acknowledged',
-                acknowledged_at = NOW(), acknowledged_by = $2, updated_at = NOW()
-           WHERE id = $1 AND status = 'Open'
-           RETURNING id, status`
-        : `UPDATE emergency_alerts SET status = 'Resolved',
-                resolved_at = NOW(), resolved_by = $2,
-                resolution_note = $3, updated_at = NOW()
-           WHERE id = $1 AND status = 'Acknowledged'
-           RETURNING id, status`,
-      action === 'acknowledge' ? [id, req.user.id] : [id, req.user.id, note.trim()],
-    );
-    if (rows.length) {
-      if(action==='resolve') {
-        await pool.query(`UPDATE rides SET emergency_flag=FALSE WHERE id=(SELECT ride_id FROM emergency_alerts WHERE id=$1)
-          AND NOT EXISTS (SELECT 1 FROM emergency_alerts e WHERE e.ride_id=rides.id AND e.status!='Resolved')`,[id]);
-      }
-      return res.json({ message: `Incident ${rows[0].status.toLowerCase()}`, alert: rows[0] });
-    }
-    const found = await pool.query('SELECT status FROM emergency_alerts WHERE id = $1', [id]);
-    return res.status(found.rows.length ? 409 : 404).json({
-      message: found.rows.length
-        ? 'Incident has changed status. Refresh and try again.'
-        : 'Incident not found',
+  const { action } = req.body || {};
+
+  const note =
+    typeof req.body?.note === 'string'
+      ? req.body.note.trim()
+      : '';
+
+  if (!UUID.test(id)) {
+    return res.status(400).json({
+      message: 'Invalid incident ID',
     });
+  }
+
+  if (!['acknowledge', 'resolve'].includes(action)) {
+    return res.status(400).json({
+      message: 'Action must be acknowledge or resolve',
+    });
+  }
+
+  if (
+    action === 'resolve' &&
+    (note.length < 15 || note.length > 500)
+  ) {
+    return res.status(400).json({
+      message: 'Provide a detailed resolution note (15–500 characters)',
+    });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // Find the ride associated with the SOS.
+    const link = await client.query(
+      `SELECT ride_id
+       FROM emergency_alerts
+       WHERE id = $1`,
+      [id]
+    );
+
+    if (!link.rows.length) {
+      await client.query('ROLLBACK');
+
+      return res.status(404).json({
+        message: 'SOS incident not found',
+      });
+    }
+
+    const rideId = link.rows[0].ride_id;
+
+    const owner = await client.query(
+      `SELECT driver_id
+       FROM rides
+       WHERE id = $1`,
+      [rideId]
+    );
+
+    if (!owner.rows.length) {
+      await client.query('ROLLBACK');
+
+      return res.status(404).json({
+        message: 'Associated ride not found',
+      });
+    }
+
+    const driverId = owner.rows[0].driver_id;
+
+    // Lock driver before ride to match booking transactions.
+    if (driverId) {
+      await client.query(
+        `SELECT user_id
+         FROM drivers
+         WHERE user_id = $1
+         FOR UPDATE`,
+        [driverId]
+      );
+    }
+
+    const rideResult = await client.query(
+      `SELECT *
+       FROM rides
+       WHERE id = $1
+       FOR UPDATE`,
+      [rideId]
+    );
+
+    const incidentResult = await client.query(
+      `SELECT *
+       FROM emergency_alerts
+       WHERE id = $1
+       FOR UPDATE`,
+      [id]
+    );
+
+    const ride = rideResult.rows[0];
+    const incident = incidentResult.rows[0];
+
+    if (!ride || !incident) {
+      await client.query('ROLLBACK');
+
+      return res.status(404).json({
+        message: 'Incident or ride was removed',
+      });
+    }
+
+    // =====================================
+    // ADMIN ACKNOWLEDGES SOS
+    // =====================================
+
+    if (action === 'acknowledge') {
+      if (incident.status !== 'Open') {
+        await client.query('ROLLBACK');
+
+        return res.status(409).json({
+          message: 'Only open incidents can be acknowledged',
+        });
+      }
+
+      const result = await client.query(
+        `UPDATE emergency_alerts
+         SET
+           status = 'Acknowledged',
+           acknowledged_at = NOW(),
+           acknowledged_by = $2,
+           updated_at = NOW()
+         WHERE id = $1
+         RETURNING id, status`,
+        [id, req.user.id]
+      );
+
+      await client.query('COMMIT');
+
+      return res.json({
+        message: 'Incident acknowledged',
+        alert: result.rows[0],
+      });
+    }
+
+    // =====================================
+    // ADMIN RESOLVES SOS
+    // =====================================
+
+    // Also permit finalization of an older SOS
+    // that was resolved before this fix.
+    if (
+      !['Acknowledged', 'Resolved'].includes(incident.status)
+    ) {
+      await client.query('ROLLBACK');
+
+      return res.status(409).json({
+        message:
+          'SOS must be acknowledged before an administrator can resolve it',
+      });
+    }
+
+    // Never release a driver while an Active
+    // journey is physically ongoing.
+    if (
+      ride.status === 'Active' &&
+      ride.driver_finished !== true
+    ) {
+      await client.query('ROLLBACK');
+
+      return res.status(409).json({
+        message:
+          'Verify that the journey has physically ended before cancelling and releasing the driver',
+      });
+    }
+
+    // A NeedsHelp alert requires documented escalation.
+    const needsHelp = await client.query(
+      `SELECT 1
+       FROM ride_safety_alerts
+       WHERE ride_id = $1
+         AND status = 'NeedsHelp'
+       LIMIT 1`,
+      [rideId]
+    );
+
+    if (
+      needsHelp.rows.length &&
+      (
+        !incident.contact_called_at ||
+        !incident.police_called_at
+      )
+    ) {
+      await client.query('ROLLBACK');
+
+      return res.status(409).json({
+        message:
+          'Document trusted-contact and police escalation before closing a NeedsHelp safety incident',
+      });
+    }
+
+    // =====================================
+    // RECORD ADMINISTRATIVE RESOLUTION
+    // =====================================
+
+    if (incident.status === 'Acknowledged') {
+      await client.query(
+        `UPDATE emergency_alerts
+         SET
+           status = 'Resolved',
+           resolved_at = NOW(),
+           resolved_by = $2,
+           resolution_note = $3,
+           updated_at = NOW()
+         WHERE id = $1`,
+        [id, req.user.id, note]
+      );
+
+    } else {
+      // Preserve the original resolution record
+      // when finalizing an already-resolved SOS.
+      await client.query(
+        `UPDATE emergency_alerts
+         SET
+           resolution_note = CONCAT(COALESCE(resolution_note, ''), $2::text),
+           updated_at = NOW()
+         WHERE id = $1`,
+        [
+          id,
+          `\nAdmin finalization by ${req.user.id}: ${note}`,
+        ]
+      );
+    }
+
+    // =====================================
+    // CHECK OTHER EMERGENCY INCIDENTS
+    // =====================================
+
+    const pendingSOS = await client.query(
+      `SELECT 1
+       FROM emergency_alerts
+       WHERE ride_id = $1
+         AND status <> 'Resolved'
+       LIMIT 1`,
+      [rideId]
+    );
+
+    if (pendingSOS.rows.length) {
+      // Another SOS is still active.
+      // The driver must remain unavailable.
+      await client.query(
+        `UPDATE rides
+         SET emergency_flag = TRUE
+         WHERE id = $1`,
+        [rideId]
+      );
+
+      await client.query('COMMIT');
+
+      return res.json({
+        message:
+          'SOS resolved, but another incident remains open. Driver not released.',
+        alert: {
+          id,
+          status: 'Resolved',
+        },
+        rideClosed: false,
+        driverAvailable: false,
+      });
+    }
+
+    // =====================================
+    // RESOLVE RELATED SAFETY ALERTS
+    // =====================================
+
+    // Admin resolution replaces passenger
+    // confirmation for this cancelled ride.
+    await client.query(
+      `UPDATE ride_safety_alerts
+       SET
+         status = 'Resolved',
+         reviewed_by = $2,
+         reviewed_at = NOW()
+       WHERE ride_id = $1
+         AND status IN (
+           'AwaitingPassenger',
+           'AwaitingAdmin',
+           'NeedsHelp'
+         )`,
+      [rideId, req.user.id]
+    );
+
+    // =====================================
+    // CANCEL RIDE AND REFUND PASSENGER
+    // =====================================
+
+    let refundedCents = 0;
+    let rideClosed = false;
+
+    if (['Pending', 'Active'].includes(ride.status)) {
+      await client.query(
+        `UPDATE rides
+         SET
+           status = 'Cancelled',
+           emergency_flag = FALSE,
+           safety_status = 'Normal',
+           deviation_samples = 0,
+           wrong_direction_samples = 0
+         WHERE id = $1`,
+        [rideId]
+      );
+
+      // Return the passenger's demonstration
+      // wallet payment using the existing
+      // cancellation refund service.
+      refundedCents = await refundCancelledRide(
+        client,
+        ride.passenger_id,
+        rideId
+      );
+
+      rideClosed = true;
+
+      // IMPORTANT:
+      // Do not set safe_arrived = TRUE.
+      // The passenger did not personally
+      // confirm Safe Arrival.
+
+    } else {
+      // Already closed rides must not
+      // receive duplicate cancellation refunds.
+      await client.query(
+        `UPDATE rides
+         SET
+           emergency_flag = FALSE,
+           safety_status = 'Normal'
+         WHERE id = $1`,
+        [rideId]
+      );
+    }
+
+    // =====================================
+    // RELEASE ELIGIBLE DRIVER
+    // =====================================
+
+    let driverAvailable = false;
+    let availabilityReason = null;
+
+    if (driverId) {
+      // Recalculate eligibility instead of
+      // directly forcing is_available = TRUE.
+      //
+      // This respects driver approval status
+      // and other unfinished bookings.
+      const availability =
+        await syncDriverAvailability(
+          client,
+          driverId
+        );
+
+      driverAvailable = availability.canAccept;
+      availabilityReason =
+        availability.reason || null;
+    }
+
+    // =====================================
+    // COMMIT ALL DATABASE CHANGES
+    // =====================================
+
+    await client.query('COMMIT');
+
+    return res.json({
+      message: rideClosed
+        ? 'SOS resolved. Ride cancelled and passenger wallet refund processed.'
+        : 'SOS resolved. Ride was already closed.',
+
+      alert: {
+        id,
+        status: 'Resolved',
+      },
+
+      rideId,
+
+      rideStatus: rideClosed
+        ? 'Cancelled'
+        : ride.status,
+
+      rideClosed,
+      refundedCents,
+      driverAvailable,
+      availabilityReason,
+    });
+
   } catch (err) {
-    console.error('IRT incident update failed:', err);
-    return res.status(500).json({ message: 'Could not update SOS incident' });
+    await client.query('ROLLBACK').catch(() => {});
+
+    console.error(
+      'IRT incident update failed:',
+      err
+    );
+
+    return res.status(500).json({
+      message: 'Could not update SOS incident',
+    });
+
+  } finally {
+    client.release();
   }
 };
 
